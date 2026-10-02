@@ -321,9 +321,11 @@ const PaymentEngine = {
     if(!f) throw new Error('Financiamiento no encontrado');
     const p = f.payments.find(x => x.id === paymentId);
     if(!p) throw new Error('Cuota no encontrada');
+    if(p.status === 'PAID') throw new Error('Esta cuota ya está pagada.');
     const user = Auth.current();
+    const minimum = Math.max(0, Number((p.scheduledAmount - (p.paidAmount || 0)).toFixed(2)));
     const nextPaid = Number((p.paidAmount + amount).toFixed(2));
-    if(!Number.isFinite(amount) || amount <= 0 || nextPaid > p.scheduledAmount) throw new Error('El pago debe ser positivo y no exceder el saldo de la cuota.');
+    if(!Number.isFinite(amount) || amount < minimum) throw new Error(`El pago no puede ser menor al saldo de la cuota (${fmtMoney(minimum)}).`);
     const before = { status:p.status, paidAmount:p.paidAmount, paidDate:p.paidDate };
     p.paidAmount = nextPaid;
     p.paidDate = new Date().toISOString();
@@ -1220,13 +1222,18 @@ const Views = {
 
   _registerPayment(financingId, paymentId){
     const id = uid('m');
+    const financing = DB.load().financings.find(x => x.id === financingId);
+    const payment = financing?.payments.find(x => x.id === paymentId);
+    if(!payment){ toast('Cuota no encontrada','error'); return; }
+    const minimum = Math.max(0, Number((payment.scheduledAmount - (payment.paidAmount || 0)).toFixed(2)));
     $('#modal-root').insertAdjacentHTML('beforeend', `
       <div id="${id}" class="modal-backdrop fixed inset-0 z-[90] flex items-center justify-center p-4">
         <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl">
           <h3 class="text-lg font-semibold mb-3">Registrar pago</h3>
           <form id="pay-form">
-            <label class="sqp-label">Monto recibido</label>
-            <input name="amount" type="number" step="0.01" min="0.01" class="sqp-input mb-3" required>
+            <div class="text-sm text-slate-600 mb-3">Cuota programada: <strong>${fmtMoney(payment.scheduledAmount)}</strong><br>Pago mínimo para completar esta cuota: <strong>${fmtMoney(minimum)}</strong>. Puedes pagar ese monto o uno mayor.</div>
+            <label class="sqp-label">Monto recibido (B/.)</label>
+            <input name="amount" type="number" step="0.01" min="${minimum.toFixed(2)}" class="sqp-input mb-3" required>
             <label class="sqp-label">Método de pago</label>
             <select name="method" class="sqp-input mb-3">
               <option>Transferencia bancaria</option><option>Efectivo</option><option>Cheque</option><option>Yappy</option><option>Otro</option>
