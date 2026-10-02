@@ -344,8 +344,9 @@ const Router = {
   go(path){ location.hash = '#' + path; },
   current(){
     const hash = location.hash.replace(/^#/, '') || '/dashboard';
-    const parts = hash.split('/').filter(Boolean);
-    return { path: hash, segments: parts };
+    const path = hash.split('?')[0] || '/dashboard';
+    const parts = path.split('/').filter(Boolean);
+    return { path, segments: parts };
   },
   render(){
     const user = Auth.current();
@@ -354,7 +355,7 @@ const Router = {
     if(user && path === '/login'){ location.hash = '#/dashboard'; return; }
     if(!user){ $('#root').innerHTML = Views.login(); Views.afterLoginRender(); return; }
     const page = segments[0] || 'dashboard';
-    const guard={clientes:'clients.read',solicitudes:'requests.read',financiamientos:'financings.read',simulacion:'simulation.run',configuracion:'admin',auditoria:'audit',usuarios:'users',alertas:'financings.read'}; const needed=guard[page];
+    const guard={clientes:'clients.read',solicitudes:'requests.read',financiamientos:'financings.read',simulacion:'simulation.run',configuracion:'admin',auditoria:'audit',usuarios:'users',alertas:'financings.read'}; const needed=page==='solicitudes'&&segments[1]==='nueva'?'requests.create':guard[page];
     const allowed=!needed||(needed==='admin'?user.role==='ADMIN':needed==='audit'?['ADMIN','SUPERVISOR'].includes(user.role):needed==='users'?user.role==='ADMIN':Auth.can(needed));
     if(!allowed){$('#root').innerHTML='<div class="min-h-screen flex items-center justify-center p-6"><div class="sqp-card text-center"><h1>Acceso denegado</h1><a href="#/dashboard">Volver al panel</a></div></div>';return;}
     const content = Views.layout(page, () => this.routeContent(segments));
@@ -726,7 +727,7 @@ const Views = {
     <div class="mb-4 flex items-center justify-between">
       <a href="#/clientes" class="text-sm text-blue-700">← Volver</a>
       <div class="flex gap-2">
-        <a href="#/solicitudes/nueva?clientId=${c.id}" class="sqp-btn sqp-btn-primary">+ Nueva solicitud</a>
+        ${Auth.can('requests.create') ? `<a href="#/solicitudes/nueva?clientId=${encodeURIComponent(c.id)}" class="sqp-btn sqp-btn-primary">+ Nueva solicitud</a>` : ''}
       </div>
     </div>
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
@@ -774,7 +775,7 @@ const Views = {
       <div class="sqp-card">
         <div class="flex items-center justify-between mb-3">
           <h3 class="font-semibold">Historial de financiamientos</h3>
-          <a href="#/solicitudes/nueva?clientId=${c.id}" class="sqp-btn sqp-btn-ghost text-xs">+ Nueva solicitud</a>
+          ${Auth.can('requests.create') ? `<a href="#/solicitudes/nueva?clientId=${encodeURIComponent(c.id)}" class="sqp-btn sqp-btn-ghost text-xs">+ Nueva solicitud</a>` : ''}
         </div>
         ${fins.length === 0 ? '<div class="text-sm text-slate-500">Sin financiamientos registrados</div>' :
           fins.map(f => `
@@ -862,7 +863,7 @@ const Views = {
     const clients = db.clients;
     return `
     <div class="mb-4"><a href="#/solicitudes" class="text-sm text-blue-700">← Volver</a></div>
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <form id="req-form" class="grid grid-cols-1 lg:grid-cols-3 gap-4">
       <div class="lg:col-span-2 space-y-4">
         <div class="sqp-card">
           <h3 class="font-semibold mb-3">Solicitud de financiamiento</h3>
@@ -897,47 +898,7 @@ const Views = {
           <div id="req-preview" class="text-sm text-slate-500">Seleccione cliente y monto para calcular el Score SQP.</div>
         </div>
       </div>
-    </div>`;
-
-    setTimeout(() => {
-      const recalc = () => {
-        const clientId = $('#req-client').value;
-        const amount = Number($('#req-amount').value || 0);
-        const inst = Number($('#req-installments').value || 6);
-        if(!clientId || !amount){ $('#req-preview').innerHTML = '<div class="text-sm text-slate-500">Complete cliente y monto.</div>'; return; }
-        try{
-          const result = ScoreEngine.evaluate(clientId, amount, inst);
-          $('#req-preview').innerHTML = Views._scorePreviewHTML(result);
-        }catch(e){ $('#req-preview').innerHTML = '<div class="text-sm text-red-600">'+esc(e.message)+'</div>'; }
-      };
-      ['req-client','req-amount','req-installments'].forEach(id => $('#'+id).addEventListener('input', recalc));
-      $('#req-client').addEventListener('change', recalc);
-      recalc();
-      $('#req-submit')?.addEventListener('click', () => {
-        const clientId = $('#req-client').value;
-        const amount = Number($('#req-amount').value);
-        const inst = Number($('#req-installments').value);
-        const firstdue = $('#req-firstdue').value;
-        if(!clientId || !amount || !inst || !firstdue){ toast('Complete todos los campos obligatorios','error'); return; }
-        const result = ScoreEngine.evaluate(clientId, amount, inst);
-        if(result.blocked){
-          toast('Financiamiento BLOQUEADO: ' + result.blockReasons.join(' | '), 'error');
-          return;
-        }
-        const req = {
-          id: uid('r'), clientId, executiveId: Auth.current().id,
-          procedureType: $('#req-procedure').value, concept: $('#req-concept').value,
-          requestedAmount: amount, installments: inst, installmentAmount: Number((amount/inst).toFixed(2)),
-          requestDate: new Date().toISOString(), firstDueDate: new Date(firstdue).toISOString(),
-          notes: $('#req-notes').value, status: 'PENDING_REVIEW', scoreResult: result, createdAt: new Date().toISOString()
-        };
-        db.requests.unshift(req);
-        audit('REQUEST_CREATED','FinancingRequest', req.id, null, { amount, clientId });
-        DB.save();
-        toast('Solicitud creada. Enviada a revisión.', 'success');
-        location.hash = '#/solicitudes/' + req.id;
-      });
-    }, 0);
+    </form>`;
   },
 
   _scorePreviewHTML(r){
@@ -972,7 +933,7 @@ const Views = {
           ? `<div class="text-orange-700 font-semibold">El monto excede el límite. Se recomendará aprobación condicionada.</div>`
           : `<div class="text-green-700 font-semibold">✓ Dentro del límite aprobado.</div>`}
       </div>
-      <button id="req-submit" class="sqp-btn sqp-btn-primary w-full justify-center mt-4" ${r.blocked?'disabled':''}>Enviar a aprobación</button>`;
+      <button id="req-submit" type="submit" class="sqp-btn sqp-btn-primary w-full justify-center mt-4" ${r.blocked?'disabled':''}>Enviar a aprobación</button>`;
   },
 
   // ─── LISTA / DETALLE DE SOLICITUDES ───
@@ -994,7 +955,7 @@ const Views = {
     return `
     <div class="flex justify-between mb-4">
       <div class="text-sm text-slate-500">${db.requests.length} solicitudes registradas</div>
-      <a href="#/solicitudes/nueva" class="sqp-btn sqp-btn-primary">+ Nueva solicitud</a>
+      ${Auth.can('requests.create') ? '<a href="#/solicitudes/nueva" class="sqp-btn sqp-btn-primary">+ Nueva solicitud</a>' : ''}
     </div>
     <div class="sqp-card p-0 overflow-hidden">
       <table class="sqp-table">
@@ -1574,6 +1535,69 @@ Views.afterContentRender = function(segments){
       DB.save();
       toast('Límites actualizados','success');
     };
+  }
+  // Nueva solicitud: recalcular el score al cambiar cliente, monto o cuotas y
+  // guardar solo después de validar el formulario completo.
+  const requestForm = $('#req-form');
+  if(requestForm){
+    const recalcRequestScore = () => {
+      const preview = $('#req-preview');
+      const clientId = $('#req-client').value;
+      const amount = Number($('#req-amount').value || 0);
+      const installments = Number($('#req-installments').value || 0);
+      if(!clientId || !amount || !installments){
+        preview.innerHTML = '<div class="text-sm text-slate-500">Seleccione un cliente e indique el monto y las cuotas para calcular el Score SQP.</div>';
+        return;
+      }
+      try{
+        preview.innerHTML = Views._scorePreviewHTML(ScoreEngine.evaluate(clientId, amount, installments));
+      }catch(error){
+        preview.innerHTML = '<div class="text-sm text-red-600">'+esc(error.message||'No se pudo calcular el score.')+'</div>';
+      }
+    };
+    ['req-client','req-amount','req-installments'].forEach(id => {
+      $('#'+id).addEventListener('input', recalcRequestScore);
+      $('#'+id).addEventListener('change', recalcRequestScore);
+    });
+    recalcRequestScore();
+    requestForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      if(!Auth.can('requests.create')){ toast('No tienes permiso para crear solicitudes.','error'); return; }
+      if(!requestForm.reportValidity()) return;
+      const clientId = $('#req-client').value;
+      const amount = Number($('#req-amount').value);
+      const installments = Number($('#req-installments').value);
+      const firstDueDate = $('#req-firstdue').value;
+      const submit = $('#req-submit');
+      const result = ScoreEngine.evaluate(clientId, amount, installments);
+      if(result.blocked){
+        toast('Financiamiento BLOQUEADO: ' + result.blockReasons.join(' | '), 'error');
+        return;
+      }
+      submit.disabled = true;
+      submit.textContent = 'Guardando solicitud…';
+      const request = {
+        id: uid('r'), clientId, executiveId: Auth.current().id,
+        procedureType: $('#req-procedure').value, concept: $('#req-concept').value,
+        requestedAmount: amount, installments,
+        installmentAmount: Number((amount/installments).toFixed(2)),
+        requestDate: new Date().toISOString(), firstDueDate: new Date(firstDueDate).toISOString(),
+        notes: $('#req-notes').value, status: 'PENDING_REVIEW', scoreResult: result,
+        createdAt: new Date().toISOString()
+      };
+      const db = DB.load();
+      db.requests.unshift(request);
+      audit('REQUEST_CREATED','FinancingRequest',request.id,null,{amount,clientId});
+      await DB.save();
+      if(DB._baseline.requests?.[request.id] !== JSON.stringify(request)){
+        submit.disabled = false;
+        submit.textContent = 'Enviar a aprobación';
+        toast('No se pudo confirmar el guardado de la solicitud en Supabase. Intenta de nuevo.','error');
+        return;
+      }
+      toast('Solicitud creada y enviada a revisión.','success');
+      location.hash = '#/solicitudes/' + request.id;
+    });
   }
   // Simulación
   const simRun = $('#sim-run');
