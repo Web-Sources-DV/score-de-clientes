@@ -1147,22 +1147,24 @@ const Views = {
     const rows = db.financings.map(f => {
       const c = db.clients.find(x => x.id === f.clientId);
       const paid = f.payments.reduce((s,p) => s + p.paidAmount, 0);
-      const pct = f.amount > 0 ? (paid/f.amount*100).toFixed(0) : 0;
+      const pending = Math.max(0, Number((f.amount - paid).toFixed(2)));
+      const pct = f.amount > 0 ? Math.min(100, (paid/f.amount*100)).toFixed(0) : 0;
       const statusMap = { PAID:'badge-green', ACTIVE:'badge-blue', LATE:'badge-orange', OVERDUE:'badge-red', DEFAULTED:'badge-red', ON_TIME:'badge-green', PAYMENT_AGREEMENT:'badge-yellow' };
       return `<tr>
         <td class="font-mono text-xs">${esc(f.code)}</td>
         <td>${esc(c?.fullName || '—')}</td>
         <td>${fmtMoney(f.amount)}</td>
         <td>${fmtMoney(paid)}</td>
+        <td class="font-semibold ${pending > 0 ? 'text-orange-700' : 'text-green-700'}">${fmtMoney(pending)}</td>
         <td class="w-32"><div class="h-2 bg-slate-100 rounded-full overflow-hidden"><div style="width:${pct}%;background:#16a34a;height:100%"></div></div><div class="text-xs text-slate-500 mt-1">${pct}%</div></td>
         <td><span class="sqp-badge ${statusMap[f.status]||'badge-gray'}">${f.status}</span></td>
         <td class="text-right"><a href="#/financiamientos/${f.id}" class="sqp-btn sqp-btn-ghost">Ver</a></td>
       </tr>`;
-    }).join('') || '<tr><td colspan="7" class="text-center text-slate-400 py-8">Sin financiamientos</td></tr>';
+    }).join('') || '<tr><td colspan="8" class="text-center text-slate-400 py-8">Sin financiamientos</td></tr>';
     return `
     <div class="sqp-card p-0 overflow-hidden">
       <table class="sqp-table">
-        <thead><tr><th>Código</th><th>Cliente</th><th>Monto</th><th>Pagado</th><th>Progreso</th><th>Estado</th><th></th></tr></thead>
+        <thead><tr><th>Código</th><th>Cliente</th><th>Monto</th><th>Pagado</th><th>Pendiente por pagar</th><th>Progreso</th><th>Estado</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
@@ -1176,7 +1178,7 @@ const Views = {
     DB.save();
     const c = db.clients.find(x => x.id === f.clientId);
     const paid = f.payments.reduce((s,p) => s + p.paidAmount, 0);
-    const pending = f.amount - paid;
+    const pending = Math.max(0, Number((f.amount - paid).toFixed(2)));
     const canRegister = Auth.can('payments.create');
 
     return `
