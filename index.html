@@ -1,0 +1,1628 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SQP Legal Consulting — Sistema de Financiamiento</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --sqp-navy:#0B2545; --sqp-blue:#1e40af; --sqp-blue-light:#3b82f6;
+    --sqp-gray:#64748b; --sqp-bg:#f1f5f9; --sqp-border:#e2e8f0;
+  }
+  body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--sqp-bg);color:#0f172a;}
+  .sqp-sidebar{background:var(--sqp-navy);color:#e2e8f0;}
+  .sqp-sidebar a{color:#cbd5e1;transition:.15s;}
+  .sqp-sidebar a:hover{background:rgba(255,255,255,.06);color:#fff;}
+  .sqp-sidebar a.active{background:var(--sqp-blue);color:#fff;}
+  .sqp-btn{display:inline-flex;align-items:center;gap:.4rem;padding:.5rem .9rem;border-radius:.5rem;font-size:.875rem;font-weight:500;cursor:pointer;transition:.15s;border:1px solid transparent;}
+  .sqp-btn-primary{background:var(--sqp-blue);color:#fff;}
+  .sqp-btn-primary:hover{background:#1d4ed8;}
+  .sqp-btn-ghost{background:#fff;color:#334155;border-color:var(--sqp-border);}
+  .sqp-btn-ghost:hover{background:#f8fafc;}
+  .sqp-btn-danger{background:#dc2626;color:#fff;}
+  .sqp-btn-danger:hover{background:#b91c1c;}
+  .sqp-btn:disabled{opacity:.5;cursor:not-allowed;}
+  .sqp-card{background:#fff;border:1px solid var(--sqp-border);border-radius:.75rem;padding:1.25rem;}
+  .sqp-input{width:100%;padding:.5rem .75rem;border:1px solid var(--sqp-border);border-radius:.5rem;font-size:.875rem;background:#fff;}
+  .sqp-input:focus{outline:none;border-color:var(--sqp-blue);box-shadow:0 0 0 3px rgba(30,64,175,.1);}
+  .sqp-label{display:block;font-size:.78rem;font-weight:600;color:#334155;margin-bottom:.25rem;}
+  .sqp-badge{display:inline-flex;align-items:center;gap:.25rem;padding:.15rem .55rem;border-radius:9999px;font-size:.72rem;font-weight:600;}
+  .badge-green{background:#dcfce7;color:#166534;}
+  .badge-yellow{background:#fef3c7;color:#854d0e;}
+  .badge-orange{background:#ffedd5;color:#9a3412;}
+  .badge-red{background:#fee2e2;color:#991b1b;}
+  .badge-gray{background:#f1f5f9;color:#475569;}
+  .badge-blue{background:#dbeafe;color:#1e40af;}
+  table.sqp-table{width:100%;font-size:.85rem;border-collapse:collapse;}
+  table.sqp-table th{text-align:left;padding:.65rem .75rem;background:#f8fafc;color:#475569;font-weight:600;font-size:.75rem;text-transform:uppercase;letter-spacing:.03em;border-bottom:1px solid var(--sqp-border);}
+  table.sqp-table td{padding:.65rem .75rem;border-bottom:1px solid #f1f5f9;}
+  table.sqp-table tr:hover td{background:#f8fafc;}
+  .sqp-tab{padding:.55rem .9rem;font-size:.85rem;font-weight:500;color:#64748b;border-bottom:2px solid transparent;cursor:pointer;}
+  .sqp-tab.active{color:var(--sqp-blue);border-color:var(--sqp-blue);}
+  .sqp-toast{background:#0f172a;color:#fff;padding:.75rem 1rem;border-radius:.5rem;font-size:.85rem;box-shadow:0 10px 25px rgba(0,0,0,.15);}
+  .step-active{background:var(--sqp-blue);color:#fff;}
+  .step-done{background:#dcfce7;color:#166534;}
+  .step-pending{background:#f1f5f9;color:#64748b;}
+  ::-webkit-scrollbar{width:8px;height:8px;}
+  ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px;}
+  .modal-backdrop{background:rgba(15,23,42,.55);backdrop-filter:blur(2px);}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div id="modal-root"></div>
+<div id="toast-root" class="fixed bottom-4 right-4 z-[100] flex flex-col gap-2"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
+<script>
+const SUPABASE_URL='https://fipcnxfxxngdjunrlbat.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY='sb_publishable_2cK8fX6MV8F21xLM4A8gMg_hRCp3-9I';
+const supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+/* ============================================================================
+   SQP LEGAL CONSULTING — SISTEMA DE EVALUACIÓN Y CONTROL DE FINANCIAMIENTO
+   App de archivo único conectada a Supabase Auth y PostgreSQL.
+   ============================================================================ */
+
+// ─────────────────────────── CONSTANTES ───────────────────────────
+
+const DEFAULT_CONFIG = {
+  weights: { paymentHistory:30, verifiableInfo:20, jobStability:15, amountCapacity:20, sqpRelationship:15 },
+  categories: [
+    { code:'GREEN',  min:80, max:100, label:'Riesgo bajo',    color:'#16a34a', emoji:'🟢' },
+    { code:'YELLOW', min:60, max:79,  label:'Riesgo medio',   color:'#eab308', emoji:'🟡' },
+    { code:'ORANGE', min:40, max:59,  label:'Riesgo elevado', color:'#f97316', emoji:'🟠' },
+    { code:'RED',    min:0,  max:39,  label:'Riesgo alto',    color:'#dc2626', emoji:'🔴' }
+  ],
+  limits: { GREEN:500, YELLOW:300, ORANGE:150, RED:0 },
+  newClientLimits: { default:150, excellent:250 },
+  maxInstallments: 6,
+  quotaBands: [ {max:30,pts:20},{max:60,pts:18},{max:100,pts:14},{max:150,pts:8},{max:Infinity,pts:4} ],
+  internalDebtLimit: 1000
+};
+
+const STORAGE_KEY='sqp_financing_v1';
+const emptyData=()=>({users:[],config:JSON.parse(JSON.stringify(DEFAULT_CONFIG)),clients:[],requests:[],financings:[],audit:[],alerts:[],counters:{client:0,request:0,financing:0}});
+const buckets=['clients','requests','financings','audit','config','counters'];
+const DB={_data:null,_baseline:{},_queue:Promise.resolve(),load(){return this._data||(this._data=emptyData());},
+async loadRemote(){const [p,r]=await Promise.all([supabaseClient.from('sqp_profiles').select('id,email,name,role,active,created_at'),supabaseClient.from('sqp_app_data').select('bucket,id,payload')]);if(p.error)throw p.error;if(r.error)throw r.error;const d=emptyData();d.users=(p.data||[]).map(x=>({id:x.id,email:x.email,name:x.name,role:x.role,active:x.active,createdAt:x.created_at}));for(const x of r.data||[]){if(x.bucket==='config')d.config=x.payload;else if(x.bucket==='counters')d.counters=x.payload;else if(Array.isArray(d[x.bucket]))d[x.bucket].push(x.payload);}this._data=d;this._remoteEmpty=(r.data||[]).length===0;this._baseline={};for(const k of buckets){const rows=k==='config'?[{id:'default',payload:d.config}]:k==='counters'?[{id:'default',payload:d.counters}]:(d[k]||[]).map(x=>({id:x.id,payload:x}));this._baseline[k]=Object.fromEntries(rows.map(x=>[x.id,JSON.stringify(x.payload)]));}return d;},
+owner(k,x){const u=Auth.current();if(k==='clients'||k==='requests')return x.executiveId||u?.id||null;if(k==='financings')return this.load().clients.find(c=>c.id===x.clientId)?.executiveId||u?.id||null;return u?.id||null;},
+save(){if(!Auth.current()||!this._data)return Promise.resolve();const d=JSON.parse(JSON.stringify(this._data));this._queue=this._queue.then(()=>this.persist(d)).catch(e=>{console.error(e);toast('No se pudo guardar en Supabase: '+(e.message||'error'),'error');});return this._queue;},
+async persist(d){for(const k of buckets){const rows=k==='config'?[{id:'default',payload:d.config}]:k==='counters'?[{id:'default',payload:d.counters}]:(d[k]||[]).map(x=>({id:x.id,payload:x}));const base=this._baseline[k]||(this._baseline[k]={});for(const x of rows){if(base[x.id]===JSON.stringify(x.payload))continue;const row={bucket:k,id:x.id,owner_id:this.owner(k,x.payload),payload:x.payload,updated_at:new Date().toISOString()};const r=k==='audit'&&base[x.id]===undefined?await supabaseClient.from('sqp_app_data').insert(row):await supabaseClient.from('sqp_app_data').upsert(row,{onConflict:'bucket,id'});if(r.error)throw r.error;base[x.id]=JSON.stringify(x.payload);}}},
+reset(){toast('Los datos remotos no se borran desde esta pantalla.','info');},
+async migrateLegacy(){const raw=localStorage.getItem(STORAGE_KEY);if(!raw||Auth.current()?.role!=='ADMIN'||!this._remoteEmpty||localStorage.getItem('sqp_remote_migration_done')==='1')return;if(!confirm('Encontré datos anteriores en este navegador. ¿Importarlos a Supabase? No se importarán las contraseñas demo.'))return;const old=JSON.parse(raw),id=Auth.current().id;old.users=this.load().users;old.alerts=[];for(const k of ['clients','requests','financings','audit'])if(!Array.isArray(old[k]))old[k]=[];old.config=old.config||JSON.parse(JSON.stringify(DEFAULT_CONFIG));old.counters=old.counters||{client:old.clients.length,request:old.requests.length,financing:old.financings.length};old.clients.forEach(x=>x.executiveId=id);old.requests.forEach(x=>x.executiveId=id);this._data=old;this._baseline={};await this.save();const ok=buckets.every(k=>{const rows=k==='config'?[{id:'default',payload:old.config}]:k==='counters'?[{id:'default',payload:old.counters}]:(old[k]||[]).map(x=>({id:x.id,payload:x}));return rows.every(x=>this._baseline[k]?.[x.id]===JSON.stringify(x.payload));});if(!ok)throw new Error('La importación no terminó; vuelve a intentarlo.');this._remoteEmpty=false;localStorage.setItem('sqp_remote_migration_done','1');toast('Datos importados a Supabase','success');}};// ─────────────────────────── HELPERS ───────────────────────────
+const $ = (sel, root=document) => root.querySelector(sel);
+const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtMoney = (n) => 'B/.' + Number(n||0).toLocaleString('es-PA',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('es-PA',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
+const fmtDateTime = (iso) => iso ? new Date(iso).toLocaleString('es-PA') : '—';
+const uid = (prefix='id') => prefix + Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4);
+const daysBetween = (a,b) => Math.floor((new Date(b) - new Date(a)) / 86400000);
+
+function toast(msg, type='info'){
+  const colors = { info:'#0f172a', success:'#166534', error:'#991b1b', warn:'#9a3412' };
+  const el = document.createElement('div');
+  el.className = 'sqp-toast';
+  el.style.background = colors[type] || colors.info;
+  el.textContent = msg;
+  $('#toast-root').appendChild(el);
+  setTimeout(() => el.remove(), 3200);
+}
+
+function confirmModal(title, body, onConfirm, confirmLabel='Confirmar'){
+  const id = uid('m');
+  const html = `
+    <div id="${id}" class="modal-backdrop fixed inset-0 z-[90] flex items-center justify-center p-4">
+      <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl">
+        <h3 class="text-lg font-semibold mb-2">${esc(title)}</h3>
+        <p class="text-sm text-slate-600 mb-5">${body}</p>
+        <div class="flex justify-end gap-2">
+          <button class="sqp-btn sqp-btn-ghost" data-cancel>Cancelar</button>
+          <button class="sqp-btn sqp-btn-primary" data-confirm>${esc(confirmLabel)}</button>
+        </div>
+      </div>
+    </div>`;
+  $('#modal-root').insertAdjacentHTML('beforeend', html);
+  const root = $('#'+id);
+  root.querySelector('[data-cancel]').onclick = () => root.remove();
+  root.querySelector('[data-confirm]').onclick = () => { root.remove(); onConfirm(); };
+}
+
+// ─────────────────────────── AUDITORÍA ───────────────────────────
+function audit(action, entity, entityId, before=null, after=null){
+  const db = DB.load();
+  const user = Auth.current();
+  db.audit.unshift({
+    id: uid('a'), userId: user?.id || null, action, entity, entityId,
+    before: before ? JSON.parse(JSON.stringify(before)) : null,
+    after: after ? JSON.parse(JSON.stringify(after)) : null,
+    timestamp: new Date().toISOString()
+  });
+  DB.save();
+}
+
+// ─────────────────────────── AUTENTICACIÓN ───────────────────────────
+const Auth={_user:null,_profile:null,current(){return this._user&&this._profile?{id:this._user.id,email:this._user.email,name:this._profile.name,role:this._profile.role,active:this._profile.active}:null;},
+async hydrate(u){if(!u){this._user=null;this._profile=null;return;}const r=await supabaseClient.from('sqp_profiles').select('id,email,name,role,active').eq('id',u.id).maybeSingle();if(r.error)throw r.error;const p=r.data;if(!p||!p.active||!['ADMIN','SUPERVISOR','EXECUTIVE','VIEWER'].includes(p.role)){await supabaseClient.auth.signOut();throw new Error('La cuenta no tiene un perfil activo autorizado.');}this._user=u;this._profile=p;},
+async restore(){const r=await supabaseClient.auth.getUser();if(r.error&&r.error.name!=='AuthSessionMissingError')throw r.error;if(r.data?.user)await this.hydrate(r.data.user);},
+async login(email,password){const r=await supabaseClient.auth.signInWithPassword({email,password});if(r.error)throw r.error;await this.hydrate(r.data.user);await DB.loadRemote();await DB.migrateLegacy();audit('LOGIN','User',r.data.user.id,null,{email:r.data.user.email});},
+async logout(){const r=await supabaseClient.auth.signOut();this._user=null;this._profile=null;DB._data=null;DB._baseline={};if(r.error)console.error(r.error);location.hash='#/login';Router.render();},
+can(x){const u=this.current();if(!u)return false;const m={ADMIN:['*'],SUPERVISOR:['clients.*','requests.*','financings.*','payments.*','reports.*','simulation.*','decisions.special','config.read'],EXECUTIVE:['clients.read','clients.create','clients.update','requests.read','requests.create','financings.read','payments.read','payments.create','simulation.run'],VIEWER:['clients.read','requests.read','financings.read','payments.read','reports.read']};const p=m[u.role]||[];return p.includes('*')||p.some(y=>y===x||(y.endsWith('.*')&&x.startsWith(y.slice(0,-1))));}};// ─────────────────────────── MOTOR DE SCORE ───────────────────────────
+const ScoreEngine = {
+  evaluate(clientId, requestedAmount, installments, opts={}){
+    const db = DB.load();
+    const cfg = db.config;
+    const client = db.clients.find(c => c.id === clientId);
+    if(!client) throw new Error('Cliente no encontrado');
+
+    const clientFinancings = db.financings.filter(f => f.clientId === clientId);
+    const isNew = client.status === 'NEW' && clientFinancings.length === 0;
+    const w = cfg.weights;
+    const breakdown = [];
+    const positives = [];
+    const warnings = [];
+
+    // A. Historial de pagos (30)
+    if(isNew){
+      breakdown.push({ code:'paymentHistory', label:'Historial de pagos con SQP', max:w.paymentHistory,
+        obtained:Math.round(w.paymentHistory*0.6), reasons:['Cliente nuevo sin historial: puntaje neutral'] });
+    } else {
+      let pts = 0; const r = [];
+      const completed = clientFinancings.filter(f => f.status === 'PAID').length;
+      const defaulted = clientFinancings.filter(f => f.status === 'DEFAULTED' || f.status === 'OVERDUE').length;
+      let maxDaysLate = 0;
+      clientFinancings.forEach(f => f.payments.forEach(p => { if(p.daysLate > maxDaysLate) maxDaysLate = p.daysLate; }));
+
+      if(completed > 0){ pts += 15; r.push(`Financiamientos completados: ${completed}`); positives.push('Historial de financiamientos completados'); }
+      if(defaulted === 0){ pts += 10; r.push('Sin incumplimientos previos'); positives.push('Sin incumplimientos previos'); }
+      else { r.push(`Incumplimientos: ${defaulted}`); warnings.push(`Incumplimientos previos: ${defaulted}`); }
+
+      if(maxDaysLate === 0){ pts += 5; positives.push('Nunca ha registrado atrasos'); }
+      else if(maxDaysLate <= 7){ pts += 3; r.push(`Atraso máximo: ${maxDaysLate} días`); }
+      else if(maxDaysLate <= 30){ pts += 1; warnings.push(`Atrasos de hasta ${maxDaysLate} días`); }
+      else { warnings.push(`Atraso máximo: ${maxDaysLate} días`); }
+
+      breakdown.push({ code:'paymentHistory', label:'Historial de pagos con SQP', max:w.paymentHistory, obtained:Math.min(pts, w.paymentHistory), reasons:r });
+    }
+
+    // B. Información verificable (20)
+    {
+      const v = client.verification || {};
+      let pts = 0; const r = [];
+      const add = (state, label, weight) => {
+        if(state === 'VERIFIED'){ pts += weight; r.push(`${label}: verificado`); }
+        else if(state === 'PENDING'){ r.push(`${label}: pendiente`); }
+        else if(state === 'INCONSISTENT'){ r.push(`${label}: inconsistente`); warnings.push(`${label} inconsistente`); }
+      };
+      add(v.identityState, 'Identidad', 6);
+      add(v.phoneState, 'Teléfono', 5);
+      add(v.addressState, 'Dirección', 5);
+      add(v.professionState, 'Profesión', 2);
+      add(v.jobState, 'Datos laborales', 2);
+      breakdown.push({ code:'verifiableInfo', label:'Información verificable', max:w.verifiableInfo, obtained:Math.min(pts,w.verifiableInfo), reasons:r });
+      if(pts >= w.verifiableInfo - 3) positives.push('Información verificada y completa');
+    }
+
+    // C. Estabilidad laboral (15)
+    {
+      let pts = 0; const r = [];
+      if(client.employmentType){
+        if(client.employmentType === 'EMPLOYEE'){ pts += 5; r.push('Empleado formal'); }
+        else if(client.employmentType === 'BUSINESS'){ pts += 4; r.push('Empresario'); }
+        else if(client.employmentType === 'FREELANCE'){ pts += 3; r.push('Independiente'); }
+        else { pts += 2; r.push('Otro tipo de empleo'); }
+      } else warnings.push('Información laboral incompleta');
+
+      if(client.seniorityMonths != null){
+        const s = client.seniorityMonths;
+        if(s >= 24) pts += 8; else if(s >= 12) pts += 6; else if(s >= 6) pts += 4; else if(s >= 1) pts += 2;
+        r.push(`Antigüedad: ${s} meses`);
+      }
+      if(client.employer) pts += 2;
+      breakdown.push({ code:'jobStability', label:'Estabilidad laboral', max:w.jobStability, obtained:Math.min(pts,w.jobStability), reasons:r });
+    }
+
+    // D. Monto vs capacidad (20)
+    {
+      const inst = Math.max(1, Math.min(cfg.maxInstallments, installments || cfg.maxInstallments));
+      const quota = requestedAmount / inst;
+      let pts = 20; const r = [`Cuota quincenal: ${fmtMoney(quota)}`];
+      for(const band of cfg.quotaBands){
+        if(quota <= band.max){ pts = band.pts; break; }
+      }
+      if(pts >= 18) positives.push('Cuota quincenal razonable');
+      else if(pts <= 8) warnings.push('Cuota quincenal elevada');
+      breakdown.push({ code:'amountCapacity', label:'Monto vs capacidad', max:w.amountCapacity, obtained:Math.min(pts,w.amountCapacity), reasons:r });
+    }
+
+    // E. Relación con SQP (15)
+    {
+      const past = clientFinancings.length;
+      let pts = 0; const r = [];
+      if(isNew){ pts = 8; r.push('Cliente nuevo: puntaje base'); }
+      else if(past === 0){ pts = 5; r.push('Sin financiamientos previos'); }
+      else if(past === 1){ pts = 10; positives.push('Cliente recurrente'); r.push('1 financiamiento previo'); }
+      else { pts = 13; positives.push('Cliente recurrente'); r.push(`${past} financiamientos previos`); }
+      if(clientFinancings.some(f => f.status === 'DEFAULTED')){ pts = 0; warnings.push('Cliente con incumplimiento previo'); }
+      breakdown.push({ code:'sqpRelationship', label:'Relación histórica con SQP', max:w.sqpRelationship, obtained:Math.min(pts,w.sqpRelationship), reasons:r });
+    }
+
+    const total = breakdown.reduce((s,b) => s + b.obtained, 0);
+    const cat = cfg.categories.find(c => total >= c.min && total <= c.max) || cfg.categories[cfg.categories.length-1];
+    let limit = cfg.limits[cat.code] || 0;
+    if(isNew){
+      if(total >= 85) limit = Math.min(limit, cfg.newClientLimits.excellent);
+      else if(total >= 60) limit = Math.min(limit, cfg.newClientLimits.default);
+      else limit = 0;
+    }
+
+    const blocks = this.evaluateBlocks(client, clientFinancings);
+
+    return {
+      score: total, category: cat.code, categoryLabel: cat.label, categoryEmoji: cat.emoji, categoryColor: cat.color,
+      limitAmount: limit, breakdown, positives, warnings,
+      blocked: blocks.blocked, blockReasons: blocks.reasons,
+      isNew, requestedAmount, installments: Math.max(1, Math.min(cfg.maxInstallments, installments || cfg.maxInstallments))
+    };
+  },
+
+  evaluateBlocks(client, financings){
+    const cfg = DB.load().config;
+    const reasons = [];
+    if(financings.some(f => f.status === 'OVERDUE' || f.status === 'DEFAULTED'))
+      reasons.push('Deuda vencida o incumplimiento registrado');
+    if(financings.some(f => f.status === 'ACTIVE' && f.payments.some(p => p.status === 'LATE' || p.status === 'OVERDUE')))
+      reasons.push('Financiamiento activo con cuotas atrasadas');
+    if(client.verification?.identityState === 'INCONSISTENT')
+      reasons.push('Identidad marcada como inconsistente');
+    const totalPending = financings.reduce((s,f) => s + f.payments.reduce((ps,p) => ps + Math.max(0, p.scheduledAmount - p.paidAmount), 0), 0);
+    if(totalPending > cfg.internalDebtLimit) reasons.push(`Deuda total (${fmtMoney(totalPending)}) supera el máximo interno`);
+    return { blocked: reasons.length > 0, reasons };
+  }
+};
+
+// ─────────────────────────── MOTOR DE PAGOS ───────────────────────────
+const PaymentEngine = {
+  buildSchedule(startDate, installments, amount){
+    const instAmount = Number((amount / installments).toFixed(2));
+    const payments = [];
+    for(let i=1;i<=installments;i++){
+      const due = new Date(new Date(startDate).getTime() + (i-1)*15*86400000);
+      payments.push({ id: uid('p'), installmentNo:i, dueDate: due.toISOString(), scheduledAmount: instAmount, paidAmount:0, paidDate:null, status:'PENDING', daysLate:0 });
+    }
+    return payments;
+  },
+  refreshStatuses(financing){
+    const now = Date.now();
+    let allPaid = true, anyOverdue = false, anyLate = false;
+    financing.payments.forEach(p => {
+      if(p.status === 'PAID') return;
+      allPaid = false;
+      const due = new Date(p.dueDate).getTime();
+      if(p.paidAmount > 0 && p.paidAmount < p.scheduledAmount){ p.status = 'PARTIAL'; }
+      else if(now > due){
+        p.daysLate = Math.floor((now - due)/86400000);
+        if(p.daysLate > 30){ p.status = 'OVERDUE'; anyOverdue = true; }
+        else if(p.daysLate > 0){ p.status = 'LATE'; anyLate = true; }
+      } else if(p.status !== 'PARTIAL'){ p.status = 'PENDING'; }
+      else { anyLate = true; }
+    });
+    if(allPaid && financing.payments.every(p => p.status === 'PAID')) financing.status = 'PAID';
+    else if(anyOverdue) financing.status = 'OVERDUE';
+    else if(anyLate) financing.status = 'LATE';
+    else if(financing.status !== 'PAID') financing.status = 'ACTIVE';
+    return financing;
+  },
+  registerPayment(financingId, paymentId, amount, method, notes){
+    const db = DB.load();
+    const f = db.financings.find(x => x.id === financingId);
+    if(!f) throw new Error('Financiamiento no encontrado');
+    const p = f.payments.find(x => x.id === paymentId);
+    if(!p) throw new Error('Cuota no encontrada');
+    const user = Auth.current();
+    const nextPaid = Number((p.paidAmount + amount).toFixed(2));
+    if(!Number.isFinite(amount) || amount <= 0 || nextPaid > p.scheduledAmount) throw new Error('El pago debe ser positivo y no exceder el saldo de la cuota.');
+    const before = { status:p.status, paidAmount:p.paidAmount, paidDate:p.paidDate };
+    p.paidAmount = nextPaid;
+    p.paidDate = new Date().toISOString();
+    p.method = method; p.notes = notes; p.registeredById = user?.id;
+    if(p.paidAmount >= p.scheduledAmount){ p.status = 'PAID'; p.daysLate = 0; }
+    else { p.status = 'PARTIAL'; }
+    this.refreshStatuses(f);
+    audit('PAYMENT_REGISTERED','Payment',p.id, before, { status:p.status, paidAmount:p.paidAmount });
+    DB.save();
+    return f;
+  }
+};
+
+// ─────────────────────────── NAVEGACIÓN ───────────────────────────
+const Router = {
+  routes: {},
+  register(path, handler){ this.routes[path] = handler; },
+  go(path){ location.hash = '#' + path; },
+  current(){
+    const hash = location.hash.replace(/^#/, '') || '/dashboard';
+    const parts = hash.split('/').filter(Boolean);
+    return { path: hash, segments: parts };
+  },
+  render(){
+    const user = Auth.current();
+    const { path, segments } = this.current();
+    if(!user && path !== '/login'){ location.hash = '#/login'; return; }
+    if(user && path === '/login'){ location.hash = '#/dashboard'; return; }
+    if(!user){ $('#root').innerHTML = Views.login(); Views.afterLoginRender(); return; }
+    const page = segments[0] || 'dashboard';
+    const guard={clientes:'clients.read',solicitudes:'requests.read',financiamientos:'financings.read',simulacion:'simulation.run',configuracion:'admin',auditoria:'audit',usuarios:'users',alertas:'financings.read'}; const needed=guard[page];
+    const allowed=!needed||(needed==='admin'?user.role==='ADMIN':needed==='audit'?['ADMIN','SUPERVISOR'].includes(user.role):needed==='users'?user.role==='ADMIN':Auth.can(needed));
+    if(!allowed){$('#root').innerHTML='<div class="min-h-screen flex items-center justify-center p-6"><div class="sqp-card text-center"><h1>Acceso denegado</h1><a href="#/dashboard">Volver al panel</a></div></div>';return;}
+    const content = Views.layout(page, () => this.routeContent(segments));
+    $('#root').innerHTML = content;
+    Views.afterLayoutRender();
+    const contentEl = $('#view-content');
+    contentEl.innerHTML = this.routeContent(segments);
+    Views.afterContentRender(segments);
+  },
+  routeContent(segments){
+    const p = segments[0] || 'dashboard';
+    const a = segments[1];
+    const map = {
+      dashboard:  () => Views.dashboard(),
+      clientes:   () => a ? (a === 'nuevo' ? Views.clientNew() : Views.clientDetail(a)) : Views.clientList(),
+      solicitudes:() => a ? (a === 'nueva' ? Views.requestNew() : Views.requestDetail(a)) : Views.requestList(),
+      financiamientos: () => a ? Views.financingDetail(a) : Views.financingList(),
+      simulacion: () => Views.simulation(),
+      configuracion: () => Views.config(),
+      auditoria:  () => Views.auditLog(),
+      usuarios:   () => Views.users(),
+      alertas:    () => Views.alerts()
+    };
+    return (map[p] || (() => `<div class="sqp-card"><h2 class="font-semibold">Módulo no implementado</h2></div>`))();
+  }
+};
+
+// ─────────────────────────── VISTAS ───────────────────────────
+const Views = {
+  // ─── LOGIN ───
+  login(){
+    return `
+    <div class="min-h-screen flex items-center justify-center p-4" style="background:linear-gradient(135deg,#0B2545 0%,#1e40af 100%);">
+      <div class="w-full max-w-md">
+        <div class="text-center mb-6">
+          <div class="inline-flex items-center gap-3 text-white">
+            <div class="w-12 h-12 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center font-bold text-xl">SQP</div>
+            <div class="text-left">
+              <div class="font-bold text-lg leading-tight">SQP Legal Consulting</div>
+              <div class="text-xs text-blue-200">Sistema de Evaluación de Financiamiento</div>
+            </div>
+          </div>
+        </div>
+        <div class="bg-white rounded-2xl shadow-2xl p-8">
+          <h2 class="text-xl font-bold mb-1">Iniciar sesión</h2>
+          <p class="text-sm text-slate-500 mb-6">Acceso restringido a personal autorizado</p>
+          <form id="login-form" class="space-y-4">
+            <div>
+              <label class="sqp-label">Correo electrónico</label>
+              <input id="login-email" type="email" class="sqp-input" required autocomplete="username">
+            </div>
+            <div>
+              <label class="sqp-label">Contraseña</label>
+              <input id="login-password" type="password" class="sqp-input" required autocomplete="current-password">
+            </div>
+            <button type="submit" class="sqp-btn sqp-btn-primary w-full justify-center">Ingresar</button>
+            <div id="login-error" class="text-sm text-red-600 hidden"></div>
+          </form>
+          <div class="mt-6 pt-4 border-t border-slate-100 text-xs text-slate-500">
+            <div class="font-semibold mb-1">Acceso de personal</div>
+            <div>Las cuentas las crea el administrador en Supabase Auth.</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  },
+  afterLoginRender(){
+    $('#login-form')?.addEventListener('submit', async e => {
+      e.preventDefault();
+      const email = $('#login-email').value;
+      const password = $('#login-password').value;
+      const button = $('#login-form button[type="submit"]');
+      button.disabled = true;
+      button.textContent = 'Conectando…';
+      try {
+        await Auth.login(email,password);
+        location.hash = '#/dashboard';
+        Router.render();
+      } catch(error) {
+        const err = $('#login-error');
+        err.textContent = error.message || 'Credenciales inválidas o cuenta inactiva.';
+        err.classList.remove('hidden');
+      } finally {
+        button.disabled = false;
+        button.textContent = 'Ingresar';
+      }
+    });
+  },
+
+  // ─── LAYOUT ───
+  layout(active, _){
+    const u = Auth.current();
+    const nav = [
+      { id:'dashboard', label:'Dashboard', icon:'📊', show:true },
+      { id:'clientes', label:'Clientes', icon:'👥', show:true },
+      { id:'solicitudes', label:'Solicitudes', icon:'📝', show:true },
+      { id:'financiamientos', label:'Financiamientos', icon:'💰', show:true },
+      { id:'alertas', label:'Alertas', icon:'🔔', show:true },
+      { id:'simulacion', label:'Simular evaluación', icon:'🧪', show:Auth.can('simulation.run') || u.role === 'ADMIN' },
+      { id:'auditoria', label:'Auditoría', icon:'🔍', show:u.role === 'ADMIN' || u.role === 'SUPERVISOR' },
+      { id:'usuarios', label:'Usuarios', icon:'⚙️', show:u.role === 'ADMIN' },
+      { id:'configuracion', label:'Configuración', icon:'🔧', show:u.role === 'ADMIN' }
+    ];
+    return `
+    <div class="min-h-screen flex">
+      <aside class="sqp-sidebar w-64 flex-shrink-0 flex flex-col">
+        <div class="p-5 border-b border-white/10">
+          <div class="flex items-center gap-2">
+            <div class="w-9 h-9 rounded-lg bg-white/10 border border-white/20 flex items-center justify-center font-bold text-sm">SQP</div>
+            <div>
+              <div class="font-semibold text-sm leading-tight">SQP Legal</div>
+              <div class="text-[10px] text-blue-200">Financiamiento</div>
+            </div>
+          </div>
+        </div>
+        <nav class="flex-1 p-3 space-y-1 overflow-y-auto">
+          ${nav.filter(n=>n.show).map(n => `<a href="#/${n.id}" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${active===n.id?'active':''}"><span>${n.icon}</span><span>${n.label}</span></a>`).join('')}
+        </nav>
+        <div class="p-3 border-t border-white/10">
+          <div class="px-2 py-2 text-xs text-blue-200">${esc(u.name)}</div>
+          <div class="px-2 text-[10px] text-blue-300/70 mb-2">${esc(u.role)}</div>
+          <button onclick="Auth.logout()" class="w-full text-left px-3 py-2 rounded-lg text-sm text-slate-300 hover:bg-white/5">↩ Cerrar sesión</button>
+        </div>
+      </aside>
+      <main class="flex-1 min-w-0">
+        <header class="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between sticky top-0 z-40">
+          <div id="page-title" class="font-semibold"></div>
+          <div class="text-xs text-slate-500">${new Date().toLocaleDateString('es-PA',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</div>
+        </header>
+        <div id="view-content" class="p-6 max-w-[1400px] mx-auto"></div>
+      </main>
+    </div>`;
+  },
+  afterLayoutRender(){
+    const titles = { dashboard:'Panel de control', clientes:'Clientes', solicitudes:'Solicitudes de financiamiento', financiamientos:'Financiamientos', simulacion:'Simular evaluación', configuracion:'Configuración del sistema', auditoria:'Auditoría', usuarios:'Usuarios y roles', alertas:'Alertas' };
+    const cur = Router.current().segments[0] || 'dashboard';
+    const t = $('#page-title'); if(t) t.textContent = titles[cur] || '';
+    $$('.sqp-sidebar nav a').forEach(a => a.onclick = () => setTimeout(() => Router.render(), 10));
+  },
+  afterContentRender(segments){ setTimeout(Views._bindCommon, 0); },
+  _bindCommon(){ /* hook para eventos post-render */ },
+
+  // ─── DASHBOARD ───
+  dashboard(){
+    const db = DB.load();
+    const financings = db.financings.map(f => PaymentEngine.refreshStatuses(f));
+    DB.save();
+    const clients = db.clients;
+    const active = financings.filter(f => f.status !== 'PAID');
+    const totalFinanced = financings.reduce((s,f) => s + f.amount, 0);
+    const totalRecovered = financings.reduce((s,f) => s + f.payments.reduce((ps,p) => ps + p.paidAmount, 0), 0);
+    const totalPending = financings.reduce((s,f) => s + f.payments.reduce((ps,p) => ps + Math.max(0, p.scheduledAmount - p.paidAmount), 0), 0);
+    const totalOverdue = financings.reduce((s,f) => s + f.payments.filter(p => p.status === 'OVERDUE').reduce((ps,p) => ps + (p.scheduledAmount - p.paidAmount), 0), 0);
+    const morosos = new Set(financings.filter(f => f.status === 'OVERDUE' || f.status === 'LATE').map(f => f.clientId)).size;
+    const now = new Date();
+    const approvedThisMonth = db.requests.filter(r => r.status === 'APPROVED' && r.decidedAt && new Date(r.decidedAt).getMonth() === now.getMonth()).length;
+    const rejected = db.requests.filter(r => r.status === 'REJECTED').length;
+    const pendingReview = db.requests.filter(r => r.status === 'PENDING_REVIEW').length;
+    const recoveryPct = totalFinanced > 0 ? (totalRecovered / totalFinanced * 100) : 0;
+    const avgLate = (() => {
+      const lates = financings.flatMap(f => f.payments.filter(p => p.daysLate > 0).map(p => p.daysLate));
+      return lates.length ? (lates.reduce((a,b)=>a+b,0)/lates.length).toFixed(1) : '0.0';
+    })();
+
+    const kpi = (label, value, sub='') => `
+      <div class="sqp-card">
+        <div class="text-xs text-slate-500 font-semibold uppercase tracking-wider">${label}</div>
+        <div class="text-2xl font-bold mt-1">${value}</div>
+        ${sub ? `<div class="text-xs text-slate-400 mt-1">${sub}</div>` : ''}
+      </div>`;
+
+    setTimeout(() => Views._renderDashboardCharts(financings), 50);
+
+    return `
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      ${kpi('Financiamientos activos', active.length, `Total histórico: ${financings.length}`)}
+      ${kpi('Total financiado', fmtMoney(totalFinanced))}
+      ${kpi('Total recuperado', fmtMoney(totalRecovered), `${recoveryPct.toFixed(1)}% del total`)}
+      ${kpi('Total pendiente', fmtMoney(totalPending))}
+      ${kpi('Total vencido', fmtMoney(totalOverdue), `${morosos} cliente(s) en mora`)}
+      ${kpi('Aprobados este mes', approvedThisMonth)}
+      ${kpi('Rechazados', rejected)}
+      ${kpi('Solicitudes en revisión', pendingReview, 'Pendientes de decisión')}
+      ${kpi('% Recuperación', recoveryPct.toFixed(1)+'%')}
+      ${kpi('Promedio días atraso', avgLate, 'Sobre cuotas atrasadas')}
+      ${kpi('Clientes totales', clients.length, `${clients.filter(c=>c.status==='NEW').length} nuevos`)}
+      ${kpi('Alertas activas', db.alerts.filter(a=>!a.resolvedAt).length)}
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="sqp-card">
+        <h3 class="font-semibold mb-3">Financiado vs Recuperado</h3>
+        <canvas id="chartMain" height="220"></canvas>
+      </div>
+      <div class="sqp-card">
+        <h3 class="font-semibold mb-3">Distribución por estado</h3>
+        <canvas id="chartStates" height="220"></canvas>
+      </div>
+    </div>`;
+  },
+  _renderDashboardCharts(financings){
+    const byMonth = {};
+    financings.forEach(f => {
+      const d = new Date(f.startDate);
+      const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+      if(!byMonth[key]) byMonth[key] = { financed:0, recovered:0 };
+      byMonth[key].financed += f.amount;
+      byMonth[key].recovered += f.payments.reduce((s,p) => s + p.paidAmount, 0);
+    });
+    const labels = Object.keys(byMonth).sort();
+    const financedData = labels.map(l => byMonth[l].financed);
+    const recoveredData = labels.map(l => byMonth[l].recovered);
+
+    const c1 = $('#chartMain'); if(c1){
+      new Chart(c1, {
+        type:'bar',
+        data:{ labels, datasets:[
+          { label:'Financiado', data:financedData, backgroundColor:'#1e40af' },
+          { label:'Recuperado', data:recoveredData, backgroundColor:'#16a34a' }
+        ]},
+        options:{ responsive:true, plugins:{legend:{position:'bottom'}}, scales:{y:{beginAtZero:true}} }
+      });
+    }
+    const c2 = $('#chartStates'); if(c2){
+      const counts = { PAID:0, ACTIVE:0, LATE:0, OVERDUE:0 };
+      financings.forEach(f => { counts[f.status] = (counts[f.status]||0) + 1; });
+      new Chart(c2, {
+        type:'doughnut',
+        data:{ labels:['Pagado','Activo','Atrasado','Vencido'], datasets:[{
+          data:[counts.PAID, counts.ACTIVE, counts.LATE, counts.OVERDUE],
+          backgroundColor:['#16a34a','#3b82f6','#f97316','#dc2626']
+        }]},
+        options:{ responsive:true, plugins:{legend:{position:'bottom'}} }
+      });
+    }
+  },
+
+  // ─── CLIENTES ───
+  clientList(){
+    const db = DB.load();
+    const statusLabels = { NEW:'Nuevo', RECURRENT:'Recurrente', HAS_DEBT:'Con deuda', NEGATIVE_HISTORY:'Historial negativo', NOT_ELIGIBLE:'No elegible' };
+    const statusColors = { NEW:'badge-blue', RECURRENT:'badge-green', HAS_DEBT:'badge-yellow', NEGATIVE_HISTORY:'badge-red', NOT_ELIGIBLE:'badge-gray' };
+
+    const rows = db.clients.map(c => {
+      const fins = db.financings.filter(f => f.clientId === c.id);
+      const pending = fins.reduce((s,f) => s + f.payments.reduce((ps,p) => ps + Math.max(0, p.scheduledAmount - p.paidAmount), 0), 0);
+      return `<tr>
+        <td class="font-mono text-xs">${esc(c.code)}</td>
+        <td class="font-medium">${esc(c.fullName)}</td>
+        <td class="text-xs text-slate-500">${esc(c.document || '')}</td>
+        <td><span class="sqp-badge ${statusColors[c.status]||'badge-gray'}">${statusLabels[c.status]||c.status}</span></td>
+        <td>${pending > 0 ? fmtMoney(pending) : '—'}</td>
+        <td class="text-xs">${fins.length}</td>
+        <td class="text-right"><button class="sqp-btn sqp-btn-ghost" onclick="location.hash='#/clientes/${c.id}'">Ver</button></td>
+      </tr>`;
+    }).join('') || `<tr><td colspan="7" class="text-center text-slate-400 py-8">Sin clientes registrados</td></tr>`;
+
+    return `
+    <div class="flex items-center justify-between mb-4">
+      <input id="cli-search" placeholder="Buscar por nombre, documento o código…" class="sqp-input max-w-md">
+      <a href="#/clientes/nuevo" class="sqp-btn sqp-btn-primary">+ Nuevo cliente</a>
+    </div>
+    <div class="sqp-card p-0 overflow-hidden">
+      <table class="sqp-table">
+        <thead><tr><th>Código</th><th>Nombre</th><th>Documento</th><th>Estado</th><th>Deuda pendiente</th><th>Financ.</th><th></th></tr></thead>
+        <tbody id="cli-tbody">${rows}</tbody>
+      </table>
+    </div>`;
+  },
+
+  clientNew(){
+    const db = DB.load();
+    const execs = db.users.filter(u => u.role === 'EXECUTIVE' || u.role === 'ADMIN');
+    return `
+    <div class="mb-4 flex items-center justify-between">
+      <a href="#/clientes" class="text-sm text-blue-700">← Volver a clientes</a>
+    </div>
+    <form id="client-new-form" class="space-y-4 max-w-4xl">
+      <div class="sqp-card">
+        <h3 class="font-semibold mb-3">Identificación</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div><label class="sqp-label">Nombre completo *</label><input name="fullName" class="sqp-input" required></div>
+          <div><label class="sqp-label">Pasaporte / Documento *</label><input name="document" class="sqp-input" required></div>
+          <div><label class="sqp-label">Nacionalidad *</label><input name="nationality" class="sqp-input" required></div>
+          <div><label class="sqp-label">Fecha de nacimiento</label><input name="birthDate" type="date" class="sqp-input"></div>
+        </div>
+      </div>
+      <div class="sqp-card">
+        <h3 class="font-semibold mb-3">Contacto</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div><label class="sqp-label">Teléfono principal *</label><input name="phone" class="sqp-input" required></div>
+          <div><label class="sqp-label">Teléfono secundario</label><input name="phone2" class="sqp-input"></div>
+          <div><label class="sqp-label">Correo electrónico</label><input name="email" type="email" class="sqp-input"></div>
+          <div><label class="sqp-label">Dirección actual</label><input name="address" class="sqp-input"></div>
+          <div><label class="sqp-label">Provincia</label><input name="province" class="sqp-input"></div>
+          <div><label class="sqp-label">Ciudad</label><input name="city" class="sqp-input"></div>
+        </div>
+      </div>
+      <div class="sqp-card">
+        <h3 class="font-semibold mb-3">Información laboral</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div><label class="sqp-label">Profesión</label><input name="profession" class="sqp-input"></div>
+          <div><label class="sqp-label">Ocupación</label><input name="occupation" class="sqp-input"></div>
+          <div><label class="sqp-label">Empresa</label><input name="employer" class="sqp-input"></div>
+          <div><label class="sqp-label">Cargo</label><input name="position" class="sqp-input"></div>
+          <div><label class="sqp-label">Tipo de empleo</label>
+            <select name="employmentType" class="sqp-input">
+              <option value="">— Seleccionar —</option>
+              <option value="EMPLOYEE">Empleado</option>
+              <option value="FREELANCE">Independiente</option>
+              <option value="BUSINESS">Empresario</option>
+              <option value="OTHER">Otro</option>
+            </select>
+          </div>
+          <div><label class="sqp-label">Antigüedad (meses)</label><input name="seniorityMonths" type="number" min="0" class="sqp-input"></div>
+        </div>
+      </div>
+      <div class="sqp-card">
+        <h3 class="font-semibold mb-3">Información migratoria</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div><label class="sqp-label">Tipo de trámite</label><input name="procedureType" class="sqp-input"></div>
+          <div><label class="sqp-label">No. de expediente</label><input name="procedureFileNo" class="sqp-input"></div>
+          <div><label class="sqp-label">Ejecutivo responsable</label>
+            <select name="executiveId" class="sqp-input">
+              <option value="">— Seleccionar —</option>
+              ${execs.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('')}
+            </select>
+          </div>
+          <div><label class="sqp-label">Estado del trámite</label><input name="procedureStatus" class="sqp-input"></div>
+        </div>
+      </div>
+      <div id="dup-warning" class="hidden sqp-card border-amber-300 bg-amber-50">
+        <div class="text-sm font-semibold text-amber-900">⚠ Posible cliente existente encontrado</div>
+        <div id="dup-list" class="text-sm text-amber-800 mt-2"></div>
+      </div>
+      <div class="flex justify-end gap-2">
+        <a href="#/clientes" class="sqp-btn sqp-btn-ghost">Cancelar</a>
+        <button type="submit" class="sqp-btn sqp-btn-primary">Registrar cliente</button>
+      </div>
+    </form>`;
+  },
+
+  clientDetail(id){
+    const db = DB.load();
+    const c = db.clients.find(x => x.id === id);
+    if(!c) return `<div class="sqp-card">Cliente no encontrado</div>`;
+    const fins = db.financings.filter(f => f.clientId === id).map(f => PaymentEngine.refreshStatuses(f));
+    DB.save();
+    const reqs = db.requests.filter(r => r.clientId === id);
+    const evals = [];
+
+    const totalFinanced = fins.reduce((s,f) => s + f.amount, 0);
+    const totalPaid = fins.reduce((s,f) => s + f.payments.reduce((ps,p) => ps + p.paidAmount, 0), 0);
+    const totalPending = fins.reduce((s,f) => s + f.payments.reduce((ps,p) => ps + Math.max(0, p.scheduledAmount - p.paidAmount), 0), 0);
+    const completed = fins.filter(f => f.status === 'PAID').length;
+    const defaulted = fins.filter(f => f.status === 'OVERDUE' || f.status === 'DEFAULTED').length;
+    let maxLate = 0;
+    fins.forEach(f => f.payments.forEach(p => { if(p.daysLate > maxLate) maxLate = p.daysLate; }));
+    const lastPayment = fins.flatMap(f => f.payments.filter(p => p.paidDate).map(p => ({ date:p.paidDate, amount:p.paidAmount })))
+      .sort((a,b) => new Date(b.date) - new Date(a.date))[0];
+
+    const v = c.verification || {};
+    const verBadge = (state) => {
+      const map = { VERIFIED:['🟢 Verificado','badge-green'], PENDING:['🟡 Pendiente','badge-yellow'], INCONSISTENT:['🔴 Inconsistente','badge-red'] };
+      const [label, cls] = map[state] || ['—','badge-gray'];
+      return `<span class="sqp-badge ${cls}">${label}</span>`;
+    };
+
+    return `
+    <div class="mb-4 flex items-center justify-between">
+      <a href="#/clientes" class="text-sm text-blue-700">← Volver</a>
+      <div class="flex gap-2">
+        <a href="#/solicitudes/nueva?clientId=${c.id}" class="sqp-btn sqp-btn-primary">+ Nueva solicitud</a>
+      </div>
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+      <div class="sqp-card lg:col-span-2">
+        <div class="flex items-start justify-between">
+          <div>
+            <div class="text-xs font-mono text-slate-500">${esc(c.code)}</div>
+            <h2 class="text-2xl font-bold">${esc(c.fullName)}</h2>
+            <div class="text-sm text-slate-600">${esc(c.nationality)} · Doc: ${esc(c.document)}</div>
+          </div>
+          <span class="sqp-badge ${c.status==='NEW'?'badge-blue':c.status==='RECURRENT'?'badge-green':c.status==='NEGATIVE_HISTORY'?'badge-red':'badge-yellow'}">${c.status}</span>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4 text-sm">
+          <div><div class="text-slate-500 text-xs">Teléfono</div><div>${esc(c.phone||'—')}</div></div>
+          <div><div class="text-slate-500 text-xs">Email</div><div>${esc(c.email||'—')}</div></div>
+          <div><div class="text-slate-500 text-xs">Dirección</div><div>${esc(c.address||'—')}</div></div>
+          <div><div class="text-slate-500 text-xs">Profesión</div><div>${esc(c.profession||'—')}</div></div>
+          <div><div class="text-slate-500 text-xs">Empleo</div><div>${esc(c.employmentType||'—')}</div></div>
+          <div><div class="text-slate-500 text-xs">Antigüedad</div><div>${c.seniorityMonths != null ? c.seniorityMonths+' meses' : '—'}</div></div>
+          <div><div class="text-slate-500 text-xs">Trámite</div><div>${esc(c.procedureType||'—')}</div></div>
+          <div><div class="text-slate-500 text-xs">Estado trámite</div><div>${esc(c.procedureStatus||'—')}</div></div>
+        </div>
+      </div>
+      <div class="sqp-card">
+        <h3 class="font-semibold mb-2 text-sm">Verificación</h3>
+        <div class="space-y-2 text-sm">
+          <div class="flex justify-between"><span>Identidad</span>${verBadge(v.identityState)}</div>
+          <div class="flex justify-between"><span>Teléfono</span>${verBadge(v.phoneState)}</div>
+          <div class="flex justify-between"><span>Dirección</span>${verBadge(v.addressState)}</div>
+          <div class="flex justify-between"><span>Profesión</span>${verBadge(v.professionState)}</div>
+          <div class="flex justify-between"><span>Datos laborales</span>${verBadge(v.jobState)}</div>
+        </div>
+        <button class="sqp-btn sqp-btn-ghost w-full justify-center mt-4" onclick="Views._openVerify('${c.id}')">Actualizar verificación</button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div class="sqp-card"><div class="text-xs text-slate-500 font-semibold uppercase">Total financiado</div><div class="text-xl font-bold mt-1">${fmtMoney(totalFinanced)}</div></div>
+      <div class="sqp-card"><div class="text-xs text-slate-500 font-semibold uppercase">Total pagado</div><div class="text-xl font-bold mt-1 text-green-700">${fmtMoney(totalPaid)}</div></div>
+      <div class="sqp-card"><div class="text-xs text-slate-500 font-semibold uppercase">Total pendiente</div><div class="text-xl font-bold mt-1 ${totalPending>0?'text-orange-600':''}">${fmtMoney(totalPending)}</div></div>
+      <div class="sqp-card"><div class="text-xs text-slate-500 font-semibold uppercase">Mayor atraso</div><div class="text-xl font-bold mt-1">${maxLate} días</div></div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="sqp-card">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="font-semibold">Historial de financiamientos</h3>
+          <a href="#/solicitudes/nueva?clientId=${c.id}" class="sqp-btn sqp-btn-ghost text-xs">+ Nueva solicitud</a>
+        </div>
+        ${fins.length === 0 ? '<div class="text-sm text-slate-500">Sin financiamientos registrados</div>' :
+          fins.map(f => `
+            <div class="border border-slate-100 rounded-lg p-3 mb-2">
+              <div class="flex justify-between items-center">
+                <div>
+                  <div class="font-mono text-xs text-slate-500">${esc(f.code)}</div>
+                  <div class="font-semibold">${fmtMoney(f.amount)} · ${f.installments} cuotas de ${fmtMoney(f.installmentAmount)}</div>
+                  <div class="text-xs text-slate-500">Inicio: ${fmtDate(f.startDate)}</div>
+                </div>
+                <div class="text-right">
+                  <span class="sqp-badge ${f.status==='PAID'?'badge-green':f.status==='OVERDUE'?'badge-red':f.status==='LATE'?'badge-orange':'badge-blue'}">${f.status}</span>
+                  <div class="mt-1"><a href="#/financiamientos/${f.id}" class="text-xs text-blue-700">Ver detalle →</a></div>
+                </div>
+              </div>
+            </div>`).join('')}
+      </div>
+      <div class="sqp-card">
+        <h3 class="font-semibold mb-3">Solicitudes</h3>
+        ${reqs.length === 0 ? '<div class="text-sm text-slate-500">Sin solicitudes</div>' :
+          reqs.map(r => `
+            <div class="border border-slate-100 rounded-lg p-3 mb-2 flex justify-between items-center">
+              <div>
+                <div class="font-semibold">${fmtMoney(r.requestedAmount)}</div>
+                <div class="text-xs text-slate-500">${fmtDate(r.requestDate)}</div>
+              </div>
+              <div class="text-right">
+                <span class="sqp-badge ${r.status==='APPROVED'?'badge-green':r.status==='REJECTED'?'badge-red':r.status==='PENDING_REVIEW'?'badge-yellow':'badge-gray'}">${r.status}</span>
+                <div class="mt-1"><a href="#/solicitudes/${r.id}" class="text-xs text-blue-700">Ver →</a></div>
+              </div>
+            </div>`).join('')}
+      </div>
+    </div>`;
+  },
+
+  _openVerify(clientId){
+    const db = DB.load();
+    const c = db.clients.find(x => x.id === clientId);
+    const v = c.verification || {};
+    const sel = (name, label, current) => `
+      <div><label class="sqp-label">${label}</label>
+        <select name="${name}" class="sqp-input">
+          <option value="PENDING" ${current==='PENDING'?'selected':''}>🟡 Pendiente</option>
+          <option value="VERIFIED" ${current==='VERIFIED'?'selected':''}>🟢 Verificado</option>
+          <option value="INCONSISTENT" ${current==='INCONSISTENT'?'selected':''}>🔴 Inconsistente</option>
+        </select>
+      </div>`;
+    const id = uid('m');
+    $('#modal-root').insertAdjacentHTML('beforeend', `
+      <div id="${id}" class="modal-backdrop fixed inset-0 z-[90] flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl">
+          <h3 class="text-lg font-semibold mb-3">Actualizar verificación</h3>
+          <form id="verify-form" class="grid grid-cols-2 gap-3">
+            ${sel('identityState','Identidad', v.identityState)}
+            ${sel('phoneState','Teléfono', v.phoneState)}
+            ${sel('addressState','Dirección', v.addressState)}
+            ${sel('professionState','Profesión', v.professionState)}
+            ${sel('jobState','Datos laborales', v.jobState)}
+            <div class="col-span-2"><label class="sqp-label">Observaciones</label><input name="notes" class="sqp-input"></div>
+            <div class="col-span-2 flex justify-end gap-2 mt-2">
+              <button type="button" class="sqp-btn sqp-btn-ghost" onclick="document.getElementById('${id}').remove()">Cancelar</button>
+              <button type="submit" class="sqp-btn sqp-btn-primary">Guardar</button>
+            </div>
+          </form>
+        </div>
+      </div>`);
+    $('#verify-form').onsubmit = e => {
+      e.preventDefault();
+      const fd = Object.fromEntries(new FormData(e.target).entries());
+      const before = JSON.parse(JSON.stringify(c.verification || {}));
+      c.verification = Object.assign({}, c.verification || {}, fd);
+      audit('VERIFICATION_UPDATED','Client', c.id, before, c.verification);
+      DB.save();
+      $('#'+id).remove();
+      toast('Verificación actualizada','success');
+      Router.render();
+    };
+  },
+
+  // ─── NUEVA SOLICITUD ───
+  requestNew(){
+    const db = DB.load();
+    const params = new URLSearchParams(location.hash.split('?')[1] || '');
+    const preselected = params.get('clientId') || '';
+    const clients = db.clients;
+    return `
+    <div class="mb-4"><a href="#/solicitudes" class="text-sm text-blue-700">← Volver</a></div>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div class="lg:col-span-2 space-y-4">
+        <div class="sqp-card">
+          <h3 class="font-semibold mb-3">Solicitud de financiamiento</h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="md:col-span-2">
+              <label class="sqp-label">Cliente *</label>
+              <select id="req-client" class="sqp-input" required>
+                <option value="">— Seleccionar cliente —</option>
+                ${clients.map(c => `<option value="${c.id}" ${c.id===preselected?'selected':''}>${esc(c.code)} — ${esc(c.fullName)}</option>`).join('')}
+              </select>
+            </div>
+            <div><label class="sqp-label">Tipo de trámite</label><input id="req-procedure" class="sqp-input"></div>
+            <div><label class="sqp-label">Concepto del financiamiento</label>
+              <select id="req-concept" class="sqp-input">
+                <option>Impuestos y pagos al Estado</option>
+                <option>Gastos administrativos</option>
+                <option>Otros costos autorizados</option>
+              </select>
+            </div>
+            <div><label class="sqp-label">Monto solicitado (B/.) *</label><input id="req-amount" type="number" step="0.01" min="1" class="sqp-input" required></div>
+            <div><label class="sqp-label">Número de cuotas (máx. ${db.config.maxInstallments}) *</label>
+              <input id="req-installments" type="number" min="1" max="${db.config.maxInstallments}" value="6" class="sqp-input" required>
+            </div>
+            <div><label class="sqp-label">Fecha estimada del primer pago *</label><input id="req-firstdue" type="date" class="sqp-input" required></div>
+            <div class="md:col-span-2"><label class="sqp-label">Observaciones</label><textarea id="req-notes" rows="2" class="sqp-input"></textarea></div>
+          </div>
+        </div>
+      </div>
+      <div class="lg:col-span-1">
+        <div class="sqp-card sticky top-20">
+          <h3 class="font-semibold mb-3">Evaluación automática</h3>
+          <div id="req-preview" class="text-sm text-slate-500">Seleccione cliente y monto para calcular el Score SQP.</div>
+        </div>
+      </div>
+    </div>`;
+
+    setTimeout(() => {
+      const recalc = () => {
+        const clientId = $('#req-client').value;
+        const amount = Number($('#req-amount').value || 0);
+        const inst = Number($('#req-installments').value || 6);
+        if(!clientId || !amount){ $('#req-preview').innerHTML = '<div class="text-sm text-slate-500">Complete cliente y monto.</div>'; return; }
+        try{
+          const result = ScoreEngine.evaluate(clientId, amount, inst);
+          $('#req-preview').innerHTML = Views._scorePreviewHTML(result);
+        }catch(e){ $('#req-preview').innerHTML = '<div class="text-sm text-red-600">'+esc(e.message)+'</div>'; }
+      };
+      ['req-client','req-amount','req-installments'].forEach(id => $('#'+id).addEventListener('input', recalc));
+      $('#req-client').addEventListener('change', recalc);
+      recalc();
+      $('#req-submit')?.addEventListener('click', () => {
+        const clientId = $('#req-client').value;
+        const amount = Number($('#req-amount').value);
+        const inst = Number($('#req-installments').value);
+        const firstdue = $('#req-firstdue').value;
+        if(!clientId || !amount || !inst || !firstdue){ toast('Complete todos los campos obligatorios','error'); return; }
+        const result = ScoreEngine.evaluate(clientId, amount, inst);
+        if(result.blocked){
+          toast('Financiamiento BLOQUEADO: ' + result.blockReasons.join(' | '), 'error');
+          return;
+        }
+        const req = {
+          id: uid('r'), clientId, executiveId: Auth.current().id,
+          procedureType: $('#req-procedure').value, concept: $('#req-concept').value,
+          requestedAmount: amount, installments: inst, installmentAmount: Number((amount/inst).toFixed(2)),
+          requestDate: new Date().toISOString(), firstDueDate: new Date(firstdue).toISOString(),
+          notes: $('#req-notes').value, status: 'PENDING_REVIEW', scoreResult: result, createdAt: new Date().toISOString()
+        };
+        db.requests.unshift(req);
+        audit('REQUEST_CREATED','FinancingRequest', req.id, null, { amount, clientId });
+        DB.save();
+        toast('Solicitud creada. Enviada a revisión.', 'success');
+        location.hash = '#/solicitudes/' + req.id;
+      });
+    }, 0);
+  },
+
+  _scorePreviewHTML(r){
+    return `
+      <div class="text-center mb-4">
+        <div class="text-4xl font-bold">${r.score}<span class="text-lg text-slate-400">/100</span></div>
+        <div class="mt-1"><span class="sqp-badge" style="background:${r.categoryColor}20;color:${r.categoryColor}">${r.categoryEmoji} ${esc(r.categoryLabel)}</span></div>
+      </div>
+      <div class="space-y-2 text-sm mb-4">
+        <div class="flex justify-between"><span class="text-slate-500">Monto solicitado</span><span class="font-semibold">${fmtMoney(r.requestedAmount)}</span></div>
+        <div class="flex justify-between"><span class="text-slate-500">Límite recomendado</span><span class="font-semibold">${fmtMoney(r.limitAmount)}</span></div>
+        <div class="flex justify-between"><span class="text-slate-500">Cuota quincenal</span><span class="font-semibold">${fmtMoney(r.requestedAmount/r.installments)}</span></div>
+        <div class="flex justify-between"><span class="text-slate-500">Número de cuotas</span><span class="font-semibold">${r.installments}</span></div>
+      </div>
+      ${r.blocked ? `
+        <div class="bg-red-50 border border-red-200 rounded-lg p-3 mb-3">
+          <div class="font-semibold text-red-800 text-sm">🚫 FINANCIAMIENTO BLOQUEADO</div>
+          <ul class="text-xs text-red-700 mt-1 list-disc list-inside">${r.blockReasons.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>
+        </div>` : ''}
+      ${r.positives.length ? `
+        <div class="mb-2">
+          <div class="text-xs font-semibold text-green-700 mb-1">Factores positivos</div>
+          <ul class="text-xs text-slate-600 space-y-1">${r.positives.map(p=>`<li>✓ ${esc(p)}</li>`).join('')}</ul>
+        </div>` : ''}
+      ${r.warnings.length ? `
+        <div class="mb-3">
+          <div class="text-xs font-semibold text-amber-700 mb-1">Requiere atención</div>
+          <ul class="text-xs text-slate-600 space-y-1">${r.warnings.map(p=>`<li>⚠ ${esc(p)}</li>`).join('')}</ul>
+        </div>` : ''}
+      <div class="text-xs text-slate-500 mt-3">
+        ${r.requestedAmount > r.limitAmount
+          ? `<div class="text-orange-700 font-semibold">El monto excede el límite. Se recomendará aprobación condicionada.</div>`
+          : `<div class="text-green-700 font-semibold">✓ Dentro del límite aprobado.</div>`}
+      </div>
+      <button id="req-submit" class="sqp-btn sqp-btn-primary w-full justify-center mt-4" ${r.blocked?'disabled':''}>Enviar a aprobación</button>`;
+  },
+
+  // ─── LISTA / DETALLE DE SOLICITUDES ───
+  requestList(){
+    const db = DB.load();
+    const statusMap = { DRAFT:'badge-gray', PENDING_REVIEW:'badge-yellow', APPROVED:'badge-green', CONDITIONAL:'badge-blue', PARTIALLY_APPROVED:'badge-blue', REJECTED:'badge-red', BLOCKED:'badge-red' };
+    const rows = db.requests.map(r => {
+      const c = db.clients.find(x => x.id === r.clientId);
+      return `<tr>
+        <td class="font-mono text-xs">${esc(r.id.slice(-6))}</td>
+        <td>${esc(c?.fullName || '—')}</td>
+        <td>${fmtMoney(r.requestedAmount)}</td>
+        <td>${r.scoreResult?.score ?? '—'}</td>
+        <td><span class="sqp-badge ${statusMap[r.status]||'badge-gray'}">${r.status}</span></td>
+        <td class="text-xs">${fmtDate(r.requestDate)}</td>
+        <td class="text-right"><a href="#/solicitudes/${r.id}" class="sqp-btn sqp-btn-ghost">Ver</a></td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="7" class="text-center text-slate-400 py-8">Sin solicitudes</td></tr>';
+    return `
+    <div class="flex justify-between mb-4">
+      <div class="text-sm text-slate-500">${db.requests.length} solicitudes registradas</div>
+      <a href="#/solicitudes/nueva" class="sqp-btn sqp-btn-primary">+ Nueva solicitud</a>
+    </div>
+    <div class="sqp-card p-0 overflow-hidden">
+      <table class="sqp-table">
+        <thead><tr><th>#</th><th>Cliente</th><th>Monto</th><th>Score</th><th>Estado</th><th>Fecha</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  },
+
+  requestDetail(id){
+    const db = DB.load();
+    const r = db.requests.find(x => x.id === id);
+    if(!r) return `<div class="sqp-card">Solicitud no encontrada</div>`;
+    const c = db.clients.find(x => x.id === r.clientId);
+    const s = r.scoreResult || ScoreEngine.evaluate(r.clientId, r.requestedAmount, r.installments);
+    const user = Auth.current();
+    const canDecide = (user.role === 'ADMIN' || user.role === 'SUPERVISOR') && r.status !== 'APPROVED' && r.status !== 'REJECTED';
+    const canSpecial = user.role === 'ADMIN' || user.role === 'SUPERVISOR';
+    const decisions = db.audit.filter(a => a.entity === 'FinancingRequest' && a.entityId === id && a.action === 'DECISION');
+
+    return `
+    <div class="mb-4"><a href="#/solicitudes" class="text-sm text-blue-700">← Volver</a></div>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div class="lg:col-span-2 space-y-4">
+        <div class="sqp-card">
+          <div class="flex items-start justify-between mb-3">
+            <div>
+              <div class="text-xs font-mono text-slate-500">SOLICITUD ${esc(r.id.slice(-6))}</div>
+              <h2 class="text-xl font-bold">${esc(c?.fullName || '—')}</h2>
+              <div class="text-sm text-slate-500">${fmtDate(r.requestDate)}</div>
+            </div>
+            <span class="sqp-badge ${r.status==='APPROVED'?'badge-green':r.status==='REJECTED'?'badge-red':'badge-yellow'}">${r.status}</span>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+            <div><div class="text-slate-500 text-xs">Concepto</div><div>${esc(r.concept||'—')}</div></div>
+            <div><div class="text-slate-500 text-xs">Trámite</div><div>${esc(r.procedureType||'—')}</div></div>
+            <div><div class="text-slate-500 text-xs">Monto</div><div class="font-semibold">${fmtMoney(r.requestedAmount)}</div></div>
+            <div><div class="text-slate-500 text-xs">Cuotas</div><div>${r.installments} × ${fmtMoney(r.installmentAmount)}</div></div>
+          </div>
+          ${r.notes ? `<div class="mt-3 text-sm"><span class="text-slate-500">Observaciones:</span> ${esc(r.notes)}</div>` : ''}
+        </div>
+
+        <div class="sqp-card">
+          <h3 class="font-semibold mb-3">Desglose del Score SQP</h3>
+          ${s.breakdown.map(b => `
+            <div class="mb-3">
+              <div class="flex justify-between text-sm mb-1"><span class="font-medium">${esc(b.label)}</span><span class="text-slate-500">${b.obtained} / ${b.max}</span></div>
+              <div class="h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div style="width:${(b.obtained/b.max*100).toFixed(1)}%;background:var(--sqp-blue);height:100%"></div>
+              </div>
+              <ul class="text-xs text-slate-500 mt-1 ml-3 list-disc list-inside">${b.reasons.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>
+            </div>`).join('')}
+        </div>
+
+        ${decisions.length ? `
+        <div class="sqp-card">
+          <h3 class="font-semibold mb-3">Historial de decisiones</h3>
+          ${decisions.map(d => `
+            <div class="border-l-2 border-blue-500 pl-3 mb-3 text-sm">
+              <div class="font-medium">${esc(d.after?.type || '—')} · ${fmtDateTime(d.timestamp)}</div>
+              <div class="text-slate-600">${esc(d.after?.justification || '')}</div>
+              <div class="text-xs text-slate-400">por ${esc(db.users.find(u=>u.id===d.userId)?.name || '—')}</div>
+            </div>`).join('')}
+        </div>` : ''}
+      </div>
+
+      <div class="space-y-4">
+        <div class="sqp-card text-center">
+          <div class="text-5xl font-bold" style="color:${s.categoryColor}">${s.score}</div>
+          <div class="text-xs text-slate-500">Score SQP / 100</div>
+          <div class="mt-2"><span class="sqp-badge" style="background:${s.categoryColor}20;color:${s.categoryColor}">${s.categoryEmoji} ${esc(s.categoryLabel)}</span></div>
+        </div>
+
+        <div class="sqp-card">
+          <div class="space-y-2 text-sm">
+            <div class="flex justify-between"><span class="text-slate-500">Monto solicitado</span><span class="font-semibold">${fmtMoney(r.requestedAmount)}</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">Límite recomendado</span><span class="font-semibold">${fmtMoney(s.limitAmount)}</span></div>
+            <div class="flex justify-between"><span class="text-slate-500">Cuota quincenal</span><span class="font-semibold">${fmtMoney(r.installmentAmount)}</span></div>
+          </div>
+        </div>
+
+        ${s.blocked ? `
+        <div class="sqp-card bg-red-50 border-red-200">
+          <div class="font-semibold text-red-800">🚫 FINANCIAMIENTO BLOQUEADO</div>
+          <ul class="text-xs text-red-700 mt-2 list-disc list-inside">${s.blockReasons.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>
+        </div>` : ''}
+
+        ${s.positives.length ? `
+        <div class="sqp-card">
+          <div class="text-xs font-semibold text-green-700 mb-2">FACTORES POSITIVOS</div>
+          <ul class="text-sm space-y-1">${s.positives.map(p=>`<li class="text-slate-700">✓ ${esc(p)}</li>`).join('')}</ul>
+        </div>` : ''}
+
+        ${s.warnings.length ? `
+        <div class="sqp-card">
+          <div class="text-xs font-semibold text-amber-700 mb-2">REQUIERE ATENCIÓN</div>
+          <ul class="text-sm space-y-1">${s.warnings.map(p=>`<li class="text-slate-700">⚠ ${esc(p)}</li>`).join('')}</ul>
+        </div>` : ''}
+
+        ${canDecide ? `
+        <div class="sqp-card">
+          <h3 class="font-semibold mb-3">Decisión</h3>
+          <div class="space-y-2">
+            ${s.blocked && !canSpecial ? `
+              <div class="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2 mb-2">
+                Se requiere un Supervisor o Administrador para revisión excepcional.
+              </div>` : ''}
+            <button class="sqp-btn sqp-btn-primary w-full justify-center" onclick="Views._decide('${r.id}','APPROVED')" ${s.blocked && !canSpecial?'disabled':''}>✓ Aprobar</button>
+            <button class="sqp-btn sqp-btn-ghost w-full justify-center" onclick="Views._decide('${r.id}','CONDITIONAL')" ${s.blocked && !canSpecial?'disabled':''}>Aprobar condicionado</button>
+            <button class="sqp-btn sqp-btn-ghost w-full justify-center" onclick="Views._decide('${r.id}','PENDING_REVIEW')">Solicitar info / revisión</button>
+            <button class="sqp-btn sqp-btn-danger w-full justify-center" onclick="Views._decide('${r.id}','REJECTED')">✗ Rechazar</button>
+          </div>
+        </div>` : ''}
+      </div>
+    </div>`;
+  },
+
+  _decide(requestId, decisionType){
+    const id = uid('m');
+    const labels = {
+      APPROVED:'Aprobar financiamiento',
+      CONDITIONAL:'Aprobar con condiciones',
+      PENDING_REVIEW:'Solicitar información adicional',
+      REJECTED:'Rechazar solicitud'
+    };
+    $('#modal-root').insertAdjacentHTML('beforeend', `
+      <div id="${id}" class="modal-backdrop fixed inset-0 z-[90] flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl">
+          <h3 class="text-lg font-semibold mb-1">${esc(labels[decisionType])}</h3>
+          <p class="text-xs text-slate-500 mb-4">La justificación es obligatoria y quedará registrada en auditoría.</p>
+          <form id="decide-form">
+            ${decisionType === 'APPROVED' || decisionType === 'CONDITIONAL' ? `
+              <label class="sqp-label">Monto aprobado</label>
+              <input name="amount" type="number" step="0.01" class="sqp-input mb-3" required>
+            ` : ''}
+            <label class="sqp-label">Justificación *</label>
+            <textarea name="justification" rows="3" class="sqp-input" required></textarea>
+            <div class="flex justify-end gap-2 mt-4">
+              <button type="button" class="sqp-btn sqp-btn-ghost" onclick="document.getElementById('${id}').remove()">Cancelar</button>
+              <button type="submit" class="sqp-btn sqp-btn-primary">Confirmar</button>
+            </div>
+          </form>
+        </div>
+      </div>`);
+    $('#decide-form').onsubmit = e => {
+      e.preventDefault();
+      const fd = Object.fromEntries(new FormData(e.target).entries());
+      const db = DB.load();
+      const r = db.requests.find(x => x.id === requestId);
+      const before = { status:r.status };
+      r.status = decisionType;
+      r.decidedAt = new Date().toISOString();
+      if(fd.amount) r.approvedAmount = Number(fd.amount);
+      audit('DECISION','FinancingRequest', r.id, before, { type: decisionType, justification: fd.justification, amount: fd.amount || null });
+
+      // Si se aprueba, crear financiamiento + calendario de pagos
+      if(decisionType === 'APPROVED' || decisionType === 'CONDITIONAL'){
+        const amount = Number(fd.amount || r.requestedAmount);
+        const db2 = DB.load();
+        db2.counters.financing++;
+        const code = 'FIN-' + String(db2.counters.financing).padStart(4,'0');
+        const payments = PaymentEngine.buildSchedule(r.firstDueDate || new Date().toISOString(), r.installments, amount);
+        const fin = {
+          id: uid('f'), code, clientId: r.clientId, requestId: r.id,
+          amount, installments: r.installments, installmentAmount: Number((amount/r.installments).toFixed(2)),
+          startDate: new Date().toISOString(), firstDueDate: payments[0].dueDate,
+          status: 'ACTIVE', payments, createdAt: new Date().toISOString()
+        };
+        db2.financings.unshift(fin);
+        // Actualizar estado del cliente
+        const cli = db2.clients.find(x => x.id === r.clientId);
+        if(cli && cli.status === 'NEW') cli.status = 'RECURRENT';
+        DB.save();
+        toast('Financiamiento creado: ' + code, 'success');
+      }
+      $('#'+id).remove();
+      DB.save();
+      Router.render();
+    };
+  },
+
+  // ─── FINANCIAMIENTOS ───
+  financingList(){
+    const db = DB.load();
+    db.financings.forEach(f => PaymentEngine.refreshStatuses(f));
+    DB.save();
+    const rows = db.financings.map(f => {
+      const c = db.clients.find(x => x.id === f.clientId);
+      const paid = f.payments.reduce((s,p) => s + p.paidAmount, 0);
+      const pct = f.amount > 0 ? (paid/f.amount*100).toFixed(0) : 0;
+      const statusMap = { PAID:'badge-green', ACTIVE:'badge-blue', LATE:'badge-orange', OVERDUE:'badge-red', DEFAULTED:'badge-red', ON_TIME:'badge-green', PAYMENT_AGREEMENT:'badge-yellow' };
+      return `<tr>
+        <td class="font-mono text-xs">${esc(f.code)}</td>
+        <td>${esc(c?.fullName || '—')}</td>
+        <td>${fmtMoney(f.amount)}</td>
+        <td>${fmtMoney(paid)}</td>
+        <td class="w-32"><div class="h-2 bg-slate-100 rounded-full overflow-hidden"><div style="width:${pct}%;background:#16a34a;height:100%"></div></div><div class="text-xs text-slate-500 mt-1">${pct}%</div></td>
+        <td><span class="sqp-badge ${statusMap[f.status]||'badge-gray'}">${f.status}</span></td>
+        <td class="text-right"><a href="#/financiamientos/${f.id}" class="sqp-btn sqp-btn-ghost">Ver</a></td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="7" class="text-center text-slate-400 py-8">Sin financiamientos</td></tr>';
+    return `
+    <div class="sqp-card p-0 overflow-hidden">
+      <table class="sqp-table">
+        <thead><tr><th>Código</th><th>Cliente</th><th>Monto</th><th>Pagado</th><th>Progreso</th><th>Estado</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  },
+
+  financingDetail(id){
+    const db = DB.load();
+    const f = db.financings.find(x => x.id === id);
+    if(!f) return `<div class="sqp-card">Financiamiento no encontrado</div>`;
+    PaymentEngine.refreshStatuses(f);
+    DB.save();
+    const c = db.clients.find(x => x.id === f.clientId);
+    const paid = f.payments.reduce((s,p) => s + p.paidAmount, 0);
+    const pending = f.amount - paid;
+    const canRegister = Auth.can('payments.create');
+
+    return `
+    <div class="mb-4"><a href="#/financiamientos" class="text-sm text-blue-700">← Volver</a></div>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+      <div class="sqp-card lg:col-span-2">
+        <div class="flex justify-between items-start">
+          <div>
+            <div class="font-mono text-xs text-slate-500">${esc(f.code)}</div>
+            <h2 class="text-xl font-bold">${esc(c?.fullName || '—')}</h2>
+            <div class="text-sm text-slate-500">${f.installments} cuotas de ${fmtMoney(f.installmentAmount)} · Inicio ${fmtDate(f.startDate)}</div>
+          </div>
+          <span class="sqp-badge ${f.status==='PAID'?'badge-green':f.status==='OVERDUE'?'badge-red':f.status==='LATE'?'badge-orange':'badge-blue'}">${f.status}</span>
+        </div>
+      </div>
+      <div class="sqp-card">
+        <div class="text-xs text-slate-500">Pagado / Total</div>
+        <div class="text-2xl font-bold">${fmtMoney(paid)} <span class="text-base text-slate-400">/ ${fmtMoney(f.amount)}</span></div>
+        <div class="h-2 bg-slate-100 rounded-full overflow-hidden mt-2"><div style="width:${f.amount>0?(paid/f.amount*100):0}%;background:#16a34a;height:100%"></div></div>
+        <div class="text-xs text-slate-500 mt-1">Pendiente: ${fmtMoney(pending)}</div>
+      </div>
+    </div>
+
+    <div class="sqp-card p-0 overflow-hidden">
+      <div class="px-4 py-3 border-b border-slate-100 font-semibold">Calendario de pagos</div>
+      <table class="sqp-table">
+        <thead><tr><th>#</th><th>Vencimiento</th><th>Programado</th><th>Pagado</th><th>Estado</th><th>Atraso</th><th>Acciones</th></tr></thead>
+        <tbody>
+          ${f.payments.map(p => `
+            <tr>
+              <td>${p.installmentNo}</td>
+              <td>${fmtDate(p.dueDate)}</td>
+              <td>${fmtMoney(p.scheduledAmount)}</td>
+              <td>${fmtMoney(p.paidAmount)}</td>
+              <td><span class="sqp-badge ${p.status==='PAID'?'badge-green':p.status==='PENDING'?'badge-gray':p.status==='LATE'?'badge-orange':p.status==='OVERDUE'?'badge-red':'badge-yellow'}">${p.status}</span></td>
+              <td>${p.daysLate > 0 ? p.daysLate + ' días' : '—'}</td>
+              <td>${canRegister && p.status !== 'PAID' ? `<button class="sqp-btn sqp-btn-ghost text-xs" onclick="Views._registerPayment('${f.id}','${p.id}')">Registrar pago</button>` : ''}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  },
+
+  _registerPayment(financingId, paymentId){
+    const id = uid('m');
+    $('#modal-root').insertAdjacentHTML('beforeend', `
+      <div id="${id}" class="modal-backdrop fixed inset-0 z-[90] flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl">
+          <h3 class="text-lg font-semibold mb-3">Registrar pago</h3>
+          <form id="pay-form">
+            <label class="sqp-label">Monto recibido</label>
+            <input name="amount" type="number" step="0.01" min="0.01" class="sqp-input mb-3" required>
+            <label class="sqp-label">Método de pago</label>
+            <select name="method" class="sqp-input mb-3">
+              <option>Transferencia bancaria</option><option>Efectivo</option><option>Cheque</option><option>Yappy</option><option>Otro</option>
+            </select>
+            <label class="sqp-label">Observaciones</label>
+            <textarea name="notes" rows="2" class="sqp-input"></textarea>
+            <div class="flex justify-end gap-2 mt-4">
+              <button type="button" class="sqp-btn sqp-btn-ghost" onclick="document.getElementById('${id}').remove()">Cancelar</button>
+              <button type="submit" class="sqp-btn sqp-btn-primary">Registrar</button>
+            </div>
+          </form>
+        </div>
+      </div>`);
+    $('#pay-form').onsubmit = e => {
+      e.preventDefault();
+      const fd = Object.fromEntries(new FormData(e.target).entries());
+      try{
+        PaymentEngine.registerPayment(financingId, paymentId, Number(fd.amount), fd.method, fd.notes);
+        toast('Pago registrado', 'success');
+        $('#'+id).remove();
+        Router.render();
+      }catch(err){ toast(err.message, 'error'); }
+    };
+  },
+
+  // ─── SIMULACIÓN ───
+  simulation(){
+    const db = DB.load();
+    return `
+    <div class="sqp-card max-w-3xl">
+      <h3 class="font-semibold mb-1">Simular evaluación</h3>
+      <p class="text-sm text-slate-500 mb-4">Ejecute el Score SQP sobre cualquier cliente histórico sin crear una solicitud real.</p>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+        <div class="md:col-span-3"><label class="sqp-label">Cliente</label>
+          <select id="sim-client" class="sqp-input">
+            <option value="">— Seleccionar —</option>
+            ${db.clients.map(c => `<option value="${c.id}">${esc(c.code)} — ${esc(c.fullName)}</option>`).join('')}
+          </select>
+        </div>
+        <div><label class="sqp-label">Monto</label><input id="sim-amount" type="number" step="0.01" value="300" class="sqp-input"></div>
+        <div><label class="sqp-label">Cuotas</label><input id="sim-installments" type="number" min="1" max="6" value="6" class="sqp-input"></div>
+        <div class="flex items-end"><button id="sim-run" class="sqp-btn sqp-btn-primary w-full justify-center">Ejecutar simulación</button></div>
+      </div>
+      <div id="sim-result"></div>
+    </div>`;
+  },
+
+  // ─── CONFIGURACIÓN ───
+  config(){
+    const db = DB.load();
+    const c = db.config;
+    return `
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="sqp-card">
+        <h3 class="font-semibold mb-3">Pesos del Score SQP</h3>
+        <form id="cfg-weights" class="space-y-3">
+          ${Object.entries(c.weights).map(([k,v]) => `
+            <div class="flex items-center gap-3">
+              <label class="text-sm flex-1">${k}</label>
+              <input name="${k}" type="number" min="0" value="${v}" class="sqp-input w-24">
+            </div>`).join('')}
+          <div class="text-xs text-slate-500">La suma total debe ser 100 puntos.</div>
+          <button type="submit" class="sqp-btn sqp-btn-primary">Guardar pesos</button>
+        </form>
+      </div>
+      <div class="sqp-card">
+        <h3 class="font-semibold mb-3">Límites de financiamiento</h3>
+        <form id="cfg-limits" class="space-y-3">
+          ${Object.entries(c.limits).map(([k,v]) => `
+            <div class="flex items-center gap-3">
+              <label class="text-sm flex-1">${k}</label>
+              <input name="${k}" type="number" min="0" value="${v}" class="sqp-input w-32">
+            </div>`).join('')}
+          <div class="flex items-center gap-3">
+            <label class="text-sm flex-1">Cliente nuevo (base)</label>
+            <input name="newDefault" type="number" value="${c.newClientLimits.default}" class="sqp-input w-32">
+          </div>
+          <div class="flex items-center gap-3">
+            <label class="text-sm flex-1">Cliente nuevo (excelente)</label>
+            <input name="newExcellent" type="number" value="${c.newClientLimits.excellent}" class="sqp-input w-32">
+          </div>
+          <button type="submit" class="sqp-btn sqp-btn-primary">Guardar límites</button>
+        </form>
+      </div>
+      <div class="sqp-card lg:col-span-2">
+        <h3 class="font-semibold mb-3">Herramientas</h3>
+        <div class="flex flex-wrap gap-2">
+          <button class="sqp-btn sqp-btn-ghost" onclick="Views._exportJSON()">⬇ Exportar datos (JSON)</button>
+          <button class="sqp-btn sqp-btn-ghost" onclick="Views._exportCSV('clients')">⬇ Clientes (CSV)</button>
+          <button class="sqp-btn sqp-btn-ghost" onclick="Views._exportCSV('financings')">⬇ Financiamientos (CSV)</button>
+          <span class="text-xs text-slate-500 self-center">Los datos viven en Supabase. Usa exportación JSON para crear una copia.</span>
+        </div>
+      </div>
+    </div>`;
+  },
+
+  _exportJSON(){
+    const blob = new Blob([JSON.stringify(DB.load(), null, 2)], { type:'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'sqp-backup-' + new Date().toISOString().slice(0,10) + '.json';
+    a.click();
+  },
+  _exportCSV(type){
+    const db = DB.load();
+    let rows = [];
+    if(type === 'clients') rows = [['code','fullName','document','nationality','status','phone'], ...db.clients.map(c => [c.code,c.fullName,c.document,c.nationality,c.status,c.phone])];
+    else rows = [['code','clientId','amount','installments','status'], ...db.financings.map(f => [f.code,f.clientId,f.amount,f.installments,f.status])];
+    const csv = rows.map(r => r.map(x => `"${String(x??'').replace(/"/g,'""')}"`).join(',')).join('\n');
+    const blob = new Blob(['\ufeff'+csv], { type:'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'sqp-' + type + '-' + new Date().toISOString().slice(0,10) + '.csv';
+    a.click();
+  },
+
+  // ─── AUDITORÍA ───
+  auditLog(){
+    const db = DB.load();
+    const rows = db.audit.slice(0, 200).map(a => {
+      const u = db.users.find(x => x.id === a.userId);
+      const c = a.entity === 'Client' ? db.clients.find(x => x.id === a.entityId) : null;
+      return `<tr>
+        <td class="text-xs whitespace-nowrap">${fmtDateTime(a.timestamp)}</td>
+        <td class="text-xs">${esc(u?.name || '—')}</td>
+        <td><span class="sqp-badge badge-blue">${esc(a.action)}</span></td>
+        <td class="text-xs">${esc(a.entity)} ${a.entityId ? '· ' + esc(a.entityId.slice(-6)) : ''}</td>
+        <td class="text-xs">${c ? esc(c.fullName) : ''}</td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="5" class="text-center text-slate-400 py-8">Sin registros</td></tr>';
+    return `
+    <div class="text-sm text-slate-500 mb-4">${db.audit.length} eventos registrados (mostrando últimos 200). Los registros son inmutables.</div>
+    <div class="sqp-card p-0 overflow-hidden">
+      <table class="sqp-table">
+        <thead><tr><th>Fecha</th><th>Usuario</th><th>Acción</th><th>Entidad</th><th>Cliente</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  },
+
+  // ─── USUARIOS ───
+  users(){
+    const db = DB.load();
+    return `
+    <div class="sqp-card p-0 overflow-hidden">
+      <table class="sqp-table">
+        <thead><tr><th>Nombre</th><th>Email</th><th>Rol</th><th>Estado</th><th>Creado</th></tr></thead>
+        <tbody>
+          ${db.users.map(u => `
+            <tr>
+              <td>${esc(u.name)}</td>
+              <td class="text-xs">${esc(u.email)}</td>
+              <td><span class="sqp-badge badge-blue">${esc(u.role)}</span></td>
+              <td>${u.active ? '<span class="sqp-badge badge-green">Activo</span>' : '<span class="sqp-badge badge-gray">Inactivo</span>'}</td>
+              <td class="text-xs">${fmtDate(u.createdAt)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  },
+
+  // ─── ALERTAS ───
+  alerts(){
+    const db = DB.load();
+    // Generar alertas on-the-fly
+    const alerts = [];
+    const now = Date.now();
+    db.financings.forEach(f => {
+      const c = db.clients.find(x => x.id === f.clientId);
+      f.payments.forEach(p => {
+        if(p.status === 'PAID') return;
+        const due = new Date(p.dueDate).getTime();
+        const diff = Math.floor((due - now) / 86400000);
+        const late = Math.floor((now - due) / 86400000);
+        if(diff > 0 && diff <= 5) alerts.push({ level:'INFO', msg:`Próximo pago de ${c?.fullName} (${diff} día${diff!==1?'s':''})` });
+        else if(diff === 0) alerts.push({ level:'INFO', msg:`Pago vence hoy: ${c?.fullName}` });
+        else if(late > 0 && late <= 7) alerts.push({ level:'WARNING', msg:`Pago atrasado (${late}d): ${c?.fullName}` });
+        else if(late > 7 && late <= 30) alerts.push({ level:'WARNING', msg:`Cliente en mora (${late}d): ${c?.fullName}` });
+        else if(late > 30 && late <= 90) alerts.push({ level:'HIGH', msg:`Deuda crítica (${late}d): ${c?.fullName}` });
+        else if(late > 90) alerts.push({ level:'CRITICAL', msg:`Deuda vencida +90d: ${c?.fullName}` });
+      });
+    });
+    const badge = (l) => ({ INFO:'badge-blue', WARNING:'badge-yellow', HIGH:'badge-orange', CRITICAL:'badge-red' }[l] || 'badge-gray');
+    return `
+    <div class="sqp-card">
+      <h3 class="font-semibold mb-3">Alertas automáticas (${alerts.length})</h3>
+      ${alerts.length === 0 ? '<div class="text-sm text-slate-500">Sin alertas activas.</div>' :
+        alerts.map(a => `
+          <div class="border-l-4 pl-3 py-2 mb-2" style="border-color:${a.level==='CRITICAL'?'#dc2626':a.level==='HIGH'?'#f97316':a.level==='WARNING'?'#eab308':'#3b82f6'}">
+            <span class="sqp-badge ${badge(a.level)}">${a.level}</span>
+            <span class="text-sm ml-2">${esc(a.msg)}</span>
+          </div>`).join('')}
+    </div>`;
+  }
+};
+
+// Hooks post-render
+const _origAfterContentRender = Views.afterContentRender.bind(Views);
+Views.afterContentRender = function(segments){
+  _origAfterContentRender(segments);
+  // Dashboard: nada extra
+  // Lista clientes: búsqueda
+  const search = $('#cli-search');
+  if(search){
+    search.addEventListener('input', () => {
+      const q = search.value.toLowerCase();
+      const db = DB.load();
+      const rows = db.clients.filter(c =>
+        c.fullName.toLowerCase().includes(q) ||
+        (c.document||'').toLowerCase().includes(q) ||
+        (c.code||'').toLowerCase().includes(q)
+      ).map(c => {
+        const fins = db.financings.filter(f => f.clientId === c.id);
+        const pending = fins.reduce((s,f) => s + f.payments.reduce((ps,p) => ps + Math.max(0, p.scheduledAmount - p.paidAmount), 0), 0);
+        const statusLabels = { NEW:'Nuevo', RECURRENT:'Recurrente', HAS_DEBT:'Con deuda', NEGATIVE_HISTORY:'Historial negativo', NOT_ELIGIBLE:'No elegible' };
+        const statusColors = { NEW:'badge-blue', RECURRENT:'badge-green', HAS_DEBT:'badge-yellow', NEGATIVE_HISTORY:'badge-red', NOT_ELIGIBLE:'badge-gray' };
+        return `<tr>
+          <td class="font-mono text-xs">${esc(c.code)}</td>
+          <td class="font-medium">${esc(c.fullName)}</td>
+          <td class="text-xs text-slate-500">${esc(c.document || '')}</td>
+          <td><span class="sqp-badge ${statusColors[c.status]||'badge-gray'}">${statusLabels[c.status]||c.status}</span></td>
+          <td>${pending > 0 ? fmtMoney(pending) : '—'}</td>
+          <td class="text-xs">${fins.length}</td>
+          <td class="text-right"><button class="sqp-btn sqp-btn-ghost" onclick="location.hash='#/clientes/${c.id}'">Ver</button></td>
+        </tr>`;
+      }).join('') || `<tr><td colspan="7" class="text-center text-slate-400 py-8">Sin resultados</td></tr>`;
+      $('#cli-tbody').innerHTML = rows;
+    });
+  }
+  // Formulario nuevo cliente
+  const form = $('#client-new-form');
+  if(form){
+    // Detección de duplicados en tiempo real
+    const docInput = form.querySelector('[name=document]');
+    const phoneInput = form.querySelector('[name=phone]');
+    const emailInput = form.querySelector('[name=email]');
+    const checkDup = () => {
+      const db = DB.load();
+      const doc = docInput.value.trim().toLowerCase();
+      const ph = phoneInput.value.trim().toLowerCase();
+      const em = emailInput.value.trim().toLowerCase();
+      const matches = db.clients.filter(c =>
+        (doc && (c.document||'').toLowerCase() === doc) ||
+        (ph && (c.phone||'').toLowerCase() === ph) ||
+        (em && (c.email||'').toLowerCase() === em)
+      );
+      const warn = $('#dup-warning');
+      const list = $('#dup-list');
+      if(matches.length){
+        warn.classList.remove('hidden');
+        list.innerHTML = matches.map(m => `• ${esc(m.code)} — ${esc(m.fullName)} (${esc(m.document || '')})`).join('<br>');
+      } else {
+        warn.classList.add('hidden');
+      }
+    };
+    docInput.addEventListener('input', checkDup);
+    phoneInput.addEventListener('input', checkDup);
+    emailInput.addEventListener('input', checkDup);
+
+    form.onsubmit = e => {
+      e.preventDefault();
+      const db = DB.load();
+      const fd = Object.fromEntries(new FormData(form).entries());
+      if(db.clients.some(c => (c.document||'').toLowerCase() === (fd.document||'').toLowerCase())){
+        toast('Ya existe un cliente con ese documento','error'); return;
+      }
+      db.counters.client++;
+      const code = 'SQP-' + String(db.counters.client).padStart(4,'0');
+      const client = Object.assign({
+        id: uid('c'), code, status:'NEW', createdAt: new Date().toISOString(),
+        verification: { identityState:'PENDING', phoneState:'PENDING', addressState:'PENDING', jobState:'PENDING', professionState:'PENDING' }
+      }, fd);
+      if(client.seniorityMonths) client.seniorityMonths = Number(client.seniorityMonths);
+      db.clients.push(client);
+      audit('CLIENT_CREATED','Client', client.id, null, { code: client.code, fullName: client.fullName });
+      client.executiveId = Auth.current().id;
+      DB.save();
+      toast('Cliente registrado: ' + code, 'success');
+      location.hash = '#/clientes/' + client.id;
+    };
+  }
+  // Form config
+  const cw = $('#cfg-weights');
+  if(cw){
+    cw.onsubmit = e => {
+      e.preventDefault();
+      const db = DB.load();
+      const fd = Object.fromEntries(new FormData(cw).entries());
+      const total = Object.values(fd).reduce((s,v) => s + Number(v), 0);
+      if(total !== 100){ toast('Los pesos deben sumar 100 (actual: '+total+')','error'); return; }
+      db.config.weights = Object.fromEntries(Object.entries(fd).map(([k,v]) => [k, Number(v)]));
+      audit('CONFIG_UPDATED','ScoreConfig',null,null,db.config.weights);
+      DB.save();
+      toast('Pesos actualizados','success');
+    };
+  }
+  const cl = $('#cfg-limits');
+  if(cl){
+    cl.onsubmit = e => {
+      e.preventDefault();
+      const db = DB.load();
+      const fd = Object.fromEntries(new FormData(cl).entries());
+      db.config.limits = { GREEN:Number(fd.GREEN), YELLOW:Number(fd.YELLOW), ORANGE:Number(fd.ORANGE), RED:Number(fd.RED) };
+      db.config.newClientLimits = { default:Number(fd.newDefault), excellent:Number(fd.newExcellent) };
+      audit('CONFIG_UPDATED','Limits',null,null,{ limits: db.config.limits, newClientLimits: db.config.newClientLimits });
+      DB.save();
+      toast('Límites actualizados','success');
+    };
+  }
+  // Simulación
+  const simRun = $('#sim-run');
+  if(simRun){
+    simRun.onclick = () => {
+      const id = $('#sim-client').value;
+      const amount = Number($('#sim-amount').value);
+      const inst = Number($('#sim-installments').value);
+      if(!id){ toast('Seleccione un cliente','error'); return; }
+      const r = ScoreEngine.evaluate(id, amount, inst);
+      const box = $('#sim-result');
+      box.innerHTML = `
+        <div class="border-t border-slate-100 pt-4 mt-2">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div class="text-center p-3 rounded-lg" style="background:${r.categoryColor}10">
+              <div class="text-3xl font-bold" style="color:${r.categoryColor}">${r.score}</div>
+              <div class="text-xs text-slate-500">Score SQP</div>
+            </div>
+            <div class="text-center p-3 bg-slate-50 rounded-lg">
+              <div class="text-lg font-semibold">${r.categoryEmoji} ${esc(r.categoryLabel)}</div>
+              <div class="text-xs text-slate-500">Clasificación</div>
+            </div>
+            <div class="text-center p-3 bg-slate-50 rounded-lg">
+              <div class="text-lg font-semibold">${fmtMoney(r.limitAmount)}</div>
+              <div class="text-xs text-slate-500">Límite recomendado</div>
+            </div>
+          </div>
+          ${r.blocked ? `<div class="bg-red-50 border border-red-200 rounded-lg p-3 mb-3">
+            <div class="font-semibold text-red-800 text-sm">🚫 Habría sido bloqueado</div>
+            <ul class="text-xs text-red-700 mt-1 list-disc list-inside">${r.blockReasons.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>
+          </div>` : '<div class="bg-green-50 border border-green-200 rounded-lg p-3 mb-3 text-sm text-green-800">✓ No habría sido bloqueado</div>'}
+          ${r.breakdown.map(b => `
+            <div class="mb-2">
+              <div class="flex justify-between text-sm"><span>${esc(b.label)}</span><span class="text-slate-500">${b.obtained}/${b.max}</span></div>
+              <div class="h-2 bg-slate-100 rounded-full overflow-hidden"><div style="width:${(b.obtained/b.max*100)}%;background:var(--sqp-blue);height:100%"></div></div>
+            </div>`).join('')}
+        </div>`;
+    };
+  }
+};
+
+// ─────────────────────────── INIT ───────────────────────────
+window.addEventListener('hashchange', () => Router.render());
+window.addEventListener('DOMContentLoaded',async()=>{try{await Auth.restore();if(Auth.current())await DB.loadRemote();else DB._data=emptyData();if(!location.hash)location.hash=Auth.current()?'#/dashboard':'#/login';Router.render();}catch(e){console.error(e);$('#root').innerHTML='<div class="min-h-screen flex items-center justify-center p-6"><div class="sqp-card"><h1>No se pudo conectar con Supabase</h1><p>'+esc(e.message||'Verifica la configuración')+'</p></div></div>';}});
+</script>
+</body>
+</html>
+
+
+
+
+
