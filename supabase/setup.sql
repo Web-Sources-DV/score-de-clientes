@@ -116,3 +116,49 @@ with check(private.current_sqp_role()='ADMIN'
  or (private.current_sqp_role()='EXECUTIVE' and bucket='financings' and owner_id=(select auth.uid()))
  or (private.current_sqp_role()='EXECUTIVE' and bucket='counters'));
 
+
+
+alter table public.sqp_app_data drop constraint sqp_app_data_bucket_check;
+alter table public.sqp_app_data add constraint sqp_app_data_bucket_check check(bucket in ('clients','requests','financings','audit','config','counters','quotes','quote_templates','suggestions'));
+grant delete on public.sqp_app_data to authenticated;
+drop policy "SQP permitted app data inserts" on public.sqp_app_data;
+drop policy "SQP permitted app data updates" on public.sqp_app_data;
+create policy "SQP permitted app data inserts" on public.sqp_app_data for insert to authenticated with check (
+ (private.current_sqp_role() in ('ADMIN','SUPERVISOR') and bucket in ('clients','requests','financings','config','counters','quotes','quote_templates','suggestions'))
+ or (private.current_sqp_role()='EXECUTIVE' and bucket in ('clients','requests','audit','counters','quotes','quote_templates','suggestions') and owner_id=(select auth.uid()))
+ or (private.current_sqp_role() in ('ADMIN','SUPERVISOR','EXECUTIVE','VIEWER') and bucket='audit' and owner_id=(select auth.uid()))
+);
+create policy "SQP permitted app data updates" on public.sqp_app_data for update to authenticated
+using (
+ private.current_sqp_role()='ADMIN'
+ or (private.current_sqp_role()='SUPERVISOR' and bucket in ('clients','requests','financings','config','counters','quotes','quote_templates','suggestions'))
+ or (private.current_sqp_role()='EXECUTIVE' and bucket in ('clients','financings','quotes','quote_templates','counters','suggestions') and (bucket='counters' or owner_id=(select auth.uid())))
+)
+with check (
+ private.current_sqp_role()='ADMIN'
+ or (private.current_sqp_role()='SUPERVISOR' and bucket in ('clients','requests','financings','config','counters','quotes','quote_templates','suggestions'))
+ or (private.current_sqp_role()='EXECUTIVE' and bucket in ('clients','financings','quotes','quote_templates','counters','suggestions') and (bucket='counters' or owner_id=(select auth.uid())))
+);
+create policy "SQP permitted app data deletes" on public.sqp_app_data for delete to authenticated
+using (
+ (private.current_sqp_role() in ('ADMIN','SUPERVISOR') and bucket in ('clients','requests','quotes','quote_templates','suggestions'))
+ or (private.current_sqp_role()='EXECUTIVE' and bucket in ('clients','quotes','quote_templates','suggestions') and owner_id=(select auth.uid()))
+);
+create index sqp_app_data_owner on public.sqp_app_data(owner_id);
+create function public.next_sqp_quote_number() returns bigint language plpgsql security invoker set search_path='' as $$
+declare next_value bigint; quote_highwater bigint;
+begin
+ if auth.uid() is null or coalesce(private.current_sqp_role(),'') not in ('ADMIN','SUPERVISOR','EXECUTIVE') then
+  raise exception 'SQP role cannot issue quotes' using errcode='42501';
+ end if;
+ select coalesce(max(((regexp_match(payload->>'quoteNumber','^COT-[0-9]{4}-([0-9]+)$'))[1])::bigint),0)
+ into quote_highwater from public.sqp_app_data where bucket='quotes';
+ insert into public.sqp_app_data(bucket,id,owner_id,payload,updated_at)
+ values('counters','quote',auth.uid(),jsonb_build_object('value',quote_highwater+1),now())
+ on conflict(bucket,id) do update set payload=jsonb_set(public.sqp_app_data.payload,'{value}',to_jsonb(greatest(coalesce(nullif(public.sqp_app_data.payload->>'value','')::bigint,0),quote_highwater)+1),true),updated_at=now()
+ returning (payload->>'value')::bigint into next_value;
+ return next_value;
+end;
+$$;
+revoke all on function public.next_sqp_quote_number() from public,anon;
+grant execute on function public.next_sqp_quote_number() to authenticated;

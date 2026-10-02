@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SQP Legal Consulting — Sistema de Financiamiento</title>
+<link rel="icon" type="image/svg+xml" href="logo.svg">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
@@ -57,8 +58,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2"></script>
 <script>
-const SUPABASE_URL='https://fipcnxfxxngdjunrlbat.supabase.co';
-const SUPABASE_PUBLISHABLE_KEY='sb_publishable_2cK8fX6MV8F21xLM4A8gMg_hRCp3-9I';
+const SUPABASE_URL='https://bcmzhicashtsdzlmqrif.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY='sb_publishable_EMThmpImC8ZlJhcUdkipOQ_GNvy8bgc';
 const supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 /* ============================================================================
    SQP LEGAL CONSULTING — SISTEMA DE EVALUACIÓN Y CONTROL DE FINANCIAMIENTO
@@ -86,7 +87,7 @@ const STORAGE_KEY='sqp_financing_v1';
 const emptyData=()=>({users:[],config:JSON.parse(JSON.stringify(DEFAULT_CONFIG)),clients:[],requests:[],financings:[],audit:[],alerts:[],counters:{client:0,request:0,financing:0}});
 const buckets=['clients','requests','financings','audit','config','counters'];
 const DB={_data:null,_baseline:{},_queue:Promise.resolve(),load(){return this._data||(this._data=emptyData());},
-async loadRemote(){const [p,r]=await Promise.all([supabaseClient.from('sqp_profiles').select('id,email,name,role,active,created_at'),supabaseClient.from('sqp_app_data').select('bucket,id,payload')]);if(p.error)throw p.error;if(r.error)throw r.error;const d=emptyData();d.users=(p.data||[]).map(x=>({id:x.id,email:x.email,name:x.name,role:x.role,active:x.active,createdAt:x.created_at}));for(const x of r.data||[]){if(x.bucket==='config')d.config=x.payload;else if(x.bucket==='counters')d.counters=x.payload;else if(Array.isArray(d[x.bucket]))d[x.bucket].push(x.payload);}this._data=d;this._remoteEmpty=(r.data||[]).length===0;this._baseline={};for(const k of buckets){const rows=k==='config'?[{id:'default',payload:d.config}]:k==='counters'?[{id:'default',payload:d.counters}]:(d[k]||[]).map(x=>({id:x.id,payload:x}));this._baseline[k]=Object.fromEntries(rows.map(x=>[x.id,JSON.stringify(x.payload)]));}return d;},
+async loadRemote(){const [p,r]=await Promise.all([supabaseClient.from('sqp_profiles').select('id,email,name,role,active,created_at'),supabaseClient.from('sqp_app_data').select('bucket,id,payload').in('bucket',buckets)]);if(p.error)throw p.error;if(r.error)throw r.error;const d=emptyData();d.users=(p.data||[]).map(x=>({id:x.id,email:x.email,name:x.name,role:x.role,active:x.active,createdAt:x.created_at}));for(const x of r.data||[]){if(x.bucket==='config'&&x.id==='default')d.config=x.payload;else if(x.bucket==='counters'&&x.id==='default')d.counters=x.payload;else if(Array.isArray(d[x.bucket]))d[x.bucket].push(x.payload);}this._data=d;this._remoteEmpty=(r.data||[]).length===0;this._baseline={};for(const k of buckets){const rows=k==='config'?[{id:'default',payload:d.config}]:k==='counters'?[{id:'default',payload:d.counters}]:(d[k]||[]).map(x=>({id:x.id,payload:x}));this._baseline[k]=Object.fromEntries(rows.map(x=>[x.id,JSON.stringify(x.payload)]));}return d;},
 owner(k,x){const u=Auth.current();if(k==='clients'||k==='requests')return x.executiveId||u?.id||null;if(k==='financings')return this.load().clients.find(c=>c.id===x.clientId)?.executiveId||u?.id||null;return u?.id||null;},
 save(){if(!Auth.current()||!this._data)return Promise.resolve();const d=JSON.parse(JSON.stringify(this._data));this._queue=this._queue.then(()=>this.persist(d)).catch(e=>{console.error(e);toast('No se pudo guardar en Supabase: '+(e.message||'error'),'error');});return this._queue;},
 async persist(d){for(const k of buckets){const rows=k==='config'?[{id:'default',payload:d.config}]:k==='counters'?[{id:'default',payload:d.counters}]:(d[k]||[]).map(x=>({id:x.id,payload:x}));const base=this._baseline[k]||(this._baseline[k]={});for(const x of rows){if(base[x.id]===JSON.stringify(x.payload))continue;const row={bucket:k,id:x.id,owner_id:this.owner(k,x.payload),payload:x.payload,updated_at:new Date().toISOString()};const r=k==='audit'&&base[x.id]===undefined?await supabaseClient.from('sqp_app_data').insert(row):await supabaseClient.from('sqp_app_data').upsert(row,{onConflict:'bucket,id'});if(r.error)throw r.error;base[x.id]=JSON.stringify(x.payload);}}},
@@ -394,7 +395,7 @@ const Views = {
       <div class="w-full max-w-md">
         <div class="text-center mb-6">
           <div class="inline-flex items-center gap-3 text-white">
-            <div class="w-12 h-12 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center font-bold text-xl">SQP</div>
+            <img src="logo.svg" alt="SQP Legal Consulting" class="w-16 h-16 object-contain bg-white rounded-xl p-1">
             <div class="text-left">
               <div class="font-bold text-lg leading-tight">SQP Legal Consulting</div>
               <div class="text-xs text-blue-200">Sistema de Evaluación de Financiamiento</div>
@@ -466,7 +467,7 @@ const Views = {
       <aside class="sqp-sidebar w-64 flex-shrink-0 flex flex-col">
         <div class="p-5 border-b border-white/10">
           <div class="flex items-center gap-2">
-            <div class="w-9 h-9 rounded-lg bg-white/10 border border-white/20 flex items-center justify-center font-bold text-sm">SQP</div>
+            <img src="logo.svg" alt="SQP Legal Consulting" class="w-12 h-12 object-contain bg-white rounded-lg p-1">
             <div>
               <div class="font-semibold text-sm leading-tight">SQP Legal</div>
               <div class="text-[10px] text-blue-200">Financiamiento</div>
